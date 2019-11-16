@@ -35,6 +35,8 @@
 #ifndef ENET_INCLUDE_H
 #define ENET_INCLUDE_H
 
+#include <algorithm>
+
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -195,9 +197,6 @@
 #ifndef ENET_BUFFER_MAXIMUM
 #define ENET_BUFFER_MAXIMUM (1 + 2 * ENET_PROTOCOL_MAXIMUM_PACKET_COMMANDS)
 #endif
-
-#define ENET_MAX(x, y) ((x) > (y) ? (x) : (y))
-#define ENET_MIN(x, y) ((x) < (y) ? (x) : (y))
 
 #define ENET_IPV6           1
 #define ENET_HOST_ANY       in6addr_any
@@ -1795,9 +1794,15 @@ extern "C" {
         if (host->outgoingBandwidth == 0 && peer->incomingBandwidth == 0) {
             peer->windowSize = ENET_PROTOCOL_MAXIMUM_WINDOW_SIZE;
         } else if (host->outgoingBandwidth == 0 || peer->incomingBandwidth == 0) {
-            peer->windowSize = (ENET_MAX(host->outgoingBandwidth, peer->incomingBandwidth) / ENET_PEER_WINDOW_SIZE_SCALE) * ENET_PROTOCOL_MINIMUM_WINDOW_SIZE;
+            peer->windowSize =
+                (std::max(host->outgoingBandwidth, peer->incomingBandwidth) /
+                 ENET_PEER_WINDOW_SIZE_SCALE) *
+                ENET_PROTOCOL_MINIMUM_WINDOW_SIZE;
         } else {
-            peer->windowSize = (ENET_MIN(host->outgoingBandwidth, peer->incomingBandwidth) / ENET_PEER_WINDOW_SIZE_SCALE) * ENET_PROTOCOL_MINIMUM_WINDOW_SIZE;
+            peer->windowSize =
+                (std::min(host->outgoingBandwidth, peer->incomingBandwidth) /
+                 ENET_PEER_WINDOW_SIZE_SCALE) *
+                ENET_PROTOCOL_MINIMUM_WINDOW_SIZE;
         }
 
         if (peer->windowSize < ENET_PROTOCOL_MINIMUM_WINDOW_SIZE) {
@@ -2174,11 +2179,15 @@ extern "C" {
         if (peer->incomingBandwidth == 0 && host->outgoingBandwidth == 0) {
             peer->windowSize = ENET_PROTOCOL_MAXIMUM_WINDOW_SIZE;
         } else if (peer->incomingBandwidth == 0 || host->outgoingBandwidth == 0) {
-            peer->windowSize = (ENET_MAX(peer->incomingBandwidth, host->outgoingBandwidth)
-              / ENET_PEER_WINDOW_SIZE_SCALE) * ENET_PROTOCOL_MINIMUM_WINDOW_SIZE;
+            peer->windowSize =
+                (std::max(peer->incomingBandwidth, host->outgoingBandwidth) /
+                 ENET_PEER_WINDOW_SIZE_SCALE) *
+                ENET_PROTOCOL_MINIMUM_WINDOW_SIZE;
         } else {
-            peer->windowSize = (ENET_MIN(peer->incomingBandwidth, host->outgoingBandwidth)
-              / ENET_PEER_WINDOW_SIZE_SCALE) * ENET_PROTOCOL_MINIMUM_WINDOW_SIZE;
+            peer->windowSize =
+                (std::min(peer->incomingBandwidth, host->outgoingBandwidth) /
+                 ENET_PEER_WINDOW_SIZE_SCALE) *
+                ENET_PROTOCOL_MINIMUM_WINDOW_SIZE;
         }
 
         if (peer->windowSize < ENET_PROTOCOL_MINIMUM_WINDOW_SIZE) {
@@ -2912,7 +2921,10 @@ extern "C" {
                 if (!windowExceeded) {
                     enet_uint32 windowSize = (peer->packetThrottle * peer->windowSize) / ENET_PEER_PACKET_THROTTLE_SCALE;
 
-                    if (peer->reliableDataInTransit + outgoingCommand->fragmentLength > ENET_MAX(windowSize, peer->mtu)) {
+                    if (peer->reliableDataInTransit +
+                            outgoingCommand->fragmentLength >
+                        std::max(windowSize, peer->mtu))
+                    {
                         windowExceeded = 1;
                     }
                 }
