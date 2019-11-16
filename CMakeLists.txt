@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 2.6)
-project(enet C)
+project(enet CXX)
 
 if(MSVC)
-	add_definitions(-W3)
+        add_definitions(-W4)
 else()
-	add_definitions(-Wno-error)
+        add_definitions(-Wall)
 endif()
 
 include_directories(${PROJECT_SOURCE_DIR}/include)
@@ -26,8 +26,9 @@ if (ENET_SHARED)
     endif()
 endif()
 
+option(ENET_TEST "" ON)
 if (ENET_TEST)
-    add_executable(enet_test test/build.c)
+    add_executable(enet_test test/build.cpp)
 
     if (WIN32)
         target_link_libraries(enet_test winmm ws2_32)

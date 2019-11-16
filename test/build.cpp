@@ -16,7 +16,7 @@ void host_server(ENetHost *server) {
             case ENET_EVENT_TYPE_CONNECT:
                 printf("A new client connected from ::1:%u.\n", event.peer->address.port);
                 /* Store any relevant client information here. */
-                event.peer->data = "Client information";
+                event.peer->data = (void *)"Client information";
                 break;
             case ENET_EVENT_TYPE_RECEIVE:
                 printf("A packet of length %zu containing %s was received from %s on channel %u.\n",
@@ -32,12 +32,12 @@ void host_server(ENetHost *server) {
             case ENET_EVENT_TYPE_DISCONNECT:
                 printf ("%s disconnected.\n", (char *)event.peer->data);
                 /* Reset the peer's client information. */
-                event.peer->data = NULL;
+                event.peer->data = nullptr;
                 break;
 
             case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
                 printf ("%s timeout.\n", (char *)event.peer->data);
-                event.peer->data = NULL;
+                event.peer->data = nullptr;
                 break;
 
             case ENET_EVENT_TYPE_NONE: break;
@@ -65,7 +65,8 @@ int main() {
     /* create a server */
     printf("starting server...\n");
     server = enet_host_create(&address, MAX_CLIENTS, 2, 0, 0);
-    if (server == NULL) {
+    if (server == nullptr)
+    {
         printf("An error occurred while trying to create an ENet server host.\n");
         return 1;
     }
@@ -73,9 +74,10 @@ int main() {
     printf("starting clients...\n");
     for (i = 0; i < MAX_CLIENTS; ++i) {
         enet_address_set_host(&address, "127.0.0.1");
-        clients[i].host = enet_host_create(NULL, 1, 2, 0, 0);
+        clients[i].host = enet_host_create(nullptr, 1, 2, 0, 0);
         clients[i].peer = enet_host_connect(clients[i].host, &address, 2, 0);
-        if (clients[i].peer == NULL) {
+        if (clients[i].peer == nullptr)
+        {
             printf("coundlnt connect\n");
             return 1;
         }
