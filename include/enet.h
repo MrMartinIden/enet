@@ -613,7 +613,7 @@
         enet_uint16 outgoingReliableSequenceNumber;
         enet_uint16 outgoingUnreliableSequenceNumber;
         enet_uint16 usedReliableWindows;
-        enet_uint16 reliableWindows[ENET_PEER_RELIABLE_WINDOWS];
+        std::array<enet_uint16, ENET_PEER_RELIABLE_WINDOWS> reliableWindows;
         enet_uint16 incomingReliableSequenceNumber;
         enet_uint16 incomingUnreliableSequenceNumber;
         ENetList    incomingReliableCommands;
@@ -687,7 +687,7 @@
         int               needsDispatch;
         enet_uint16       incomingUnsequencedGroup;
         enet_uint16       outgoingUnsequencedGroup;
-        enet_uint32       unsequencedWindow[ENET_PEER_UNSEQUENCED_WINDOW_SIZE / 32];
+        std::array<enet_uint32, (ENET_PEER_UNSEQUENCED_WINDOW_SIZE / 32)> unsequencedWindow;
         enet_uint32       eventData;
         size_t            totalWaitingData;
     } ENetPeer;
@@ -1828,7 +1828,7 @@
             enet_list_clear(&channel->incomingUnreliableCommands);
 
             channel->usedReliableWindows = 0;
-            memset(channel->reliableWindows, 0, sizeof(channel->reliableWindows));
+            channel->reliableWindows     = {0};
         }
 
         mtu = ENET_NET_TO_HOST_32(command->connect.mtu);
@@ -1949,7 +1949,7 @@
 
         if (unsequencedGroup - index != peer->incomingUnsequencedGroup) {
             peer->incomingUnsequencedGroup = unsequencedGroup - index;
-            memset(peer->unsequencedWindow, 0, sizeof(peer->unsequencedWindow));
+            peer->unsequencedWindow        = {0};
         } else if (peer->unsequencedWindow[index / 32] & (1 << (index % 32))) {
             return 0;
         }
@@ -3884,7 +3884,7 @@
         peer->eventData                     = 0;
         peer->totalWaitingData              = 0;
 
-        memset(peer->unsequencedWindow, 0, sizeof(peer->unsequencedWindow));
+        peer->unsequencedWindow = {0};
         enet_peer_reset_queues(peer);
     }
 
@@ -4638,7 +4638,7 @@
             enet_list_clear(&channel->incomingUnreliableCommands);
 
             channel->usedReliableWindows = 0;
-            memset(channel->reliableWindows, 0, sizeof(channel->reliableWindows));
+            channel->reliableWindows     = {0};
         }
 
         command.header.command                     = ENET_PROTOCOL_COMMAND_CONNECT | ENET_PROTOCOL_COMMAND_FLAG_ACKNOWLEDGE;
