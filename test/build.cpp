@@ -64,7 +64,7 @@ int main() {
 
     /* create a server */
     printf("starting server...\n");
-    server = enet_host_create(&address, MAX_CLIENTS, 2, 0, 0);
+    server = new ENetHost(&address, MAX_CLIENTS, 2, 0, 0);
     if (server == nullptr)
     {
         printf("An error occurred while trying to create an ENet server host.\n");
@@ -74,7 +74,7 @@ int main() {
     printf("starting clients...\n");
     for (i = 0; i < MAX_CLIENTS; ++i) {
         enet_address_set_host(&address, "127.0.0.1");
-        clients[i].host = enet_host_create(nullptr, 1, 2, 0, 0);
+        clients[i].host = new ENetHost(nullptr, 1, 2, 0, 0);
         clients[i].peer = enet_host_connect(clients[i].host, &address, 2, 0);
         if (clients[i].peer == nullptr)
         {
@@ -99,12 +99,12 @@ int main() {
 
     for (i = 0; i < MAX_CLIENTS; ++i) {
         enet_peer_disconnect_now(clients[i].peer, 0);
-        enet_host_destroy(clients[i].host);
+        delete clients[i].host;
     }
 
     host_server(server);
 
-    enet_host_destroy(server);
+    delete server;
     enet_deinitialize();
     return 0;
 }

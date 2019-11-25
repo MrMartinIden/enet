@@ -36,6 +36,8 @@
 #define ENET_INCLUDE_H
 
 #include <algorithm>
+#include <cassert>
+#include <iostream>
 
 #include <stdlib.h>
 #include <stdbool.h>
@@ -201,11 +203,7 @@
 #define ENET_IPV6           1
 #define ENET_HOST_ANY       in6addr_any
 #define ENET_HOST_BROADCAST 0xFFFFFFFFU
-#define ENET_PORT_ANY       0
-
-#ifdef __cplusplus
-extern "C" {
-#endif
+#define ENET_PORT_ANY 0
 
 // =======================================================================//
 // !
@@ -736,10 +734,10 @@ extern "C" {
         ENetAddress           address;           /**< Internet address of the host */
         enet_uint32           incomingBandwidth; /**< downstream bandwidth of the host */
         enet_uint32           outgoingBandwidth; /**< upstream bandwidth of the host */
-        enet_uint32           bandwidthThrottleEpoch;
-        enet_uint32           mtu;
+        enet_uint32           bandwidthThrottleEpoch = 0;
+        enet_uint32           mtu                    = ENET_HOST_DEFAULT_MTU;
         enet_uint32           randomSeed;
-        int                   recalculateBandwidthLimits;
+        int                   recalculateBandwidthLimits = 0;
         ENetPeer *            peers;        /**< array of peers allocated for this host */
         size_t                peerCount;    /**< number of peers allocated for this host */
         size_t                channelLimit; /**< maximum number of channels allowed for connected peers */
@@ -749,25 +747,45 @@ extern "C" {
         size_t                packetSize;
         enet_uint16           headerFlags;
         ENetProtocol          commands[ENET_PROTOCOL_MAXIMUM_PACKET_COMMANDS];
-        size_t                commandCount;
+        size_t                commandCount = 0;
         ENetBuffer            buffers[ENET_BUFFER_MAXIMUM];
-        size_t                bufferCount;
-        ENetChecksumCallback  checksum; /**< callback the user can set to enable packet checksums for this host */
+        size_t                bufferCount = 0;
+        ENetChecksumCallback  checksum =
+            nullptr; /**< callback the user can set to enable packet checksums for this host */
         ENetCompressor        compressor;
         enet_uint8            packetData[2][ENET_PROTOCOL_MAXIMUM_MTU];
         ENetAddress           receivedAddress;
-        enet_uint8 *          receivedData;
-        size_t                receivedDataLength;
-        enet_uint32           totalSentData;        /**< total data sent, user should reset to 0 as needed to prevent overflow */
-        enet_uint32           totalSentPackets;     /**< total UDP packets sent, user should reset to 0 as needed to prevent overflow */
-        enet_uint32           totalReceivedData;    /**< total data received, user should reset to 0 as needed to prevent overflow */
-        enet_uint32           totalReceivedPackets; /**< total UDP packets received, user should reset to 0 as needed to prevent overflow */
-        ENetInterceptCallback intercept;            /**< callback the user can set to intercept received raw UDP packets */
-        size_t                connectedPeers;
-        size_t                bandwidthLimitedPeers;
-        size_t                duplicatePeers;     /**< optional number of allowed peers from duplicate IPs, defaults to ENET_PROTOCOL_MAXIMUM_PEER_ID */
-        size_t                maximumPacketSize;  /**< the maximum allowable packet size that may be sent or received on a peer */
-        size_t                maximumWaitingData; /**< the maximum aggregate amount of buffer space a peer may use waiting for packets to be delivered */
+        enet_uint8 *          receivedData       = nullptr;
+        size_t                receivedDataLength = 0;
+        enet_uint32           totalSentData =
+            0; /**< total data sent, user should reset to 0 as needed to prevent overflow */
+        enet_uint32 totalSentPackets =
+            0; /**< total UDP packets sent, user should reset to 0 as needed to prevent overflow */
+        enet_uint32 totalReceivedData =
+            0; /**< total data received, user should reset to 0 as needed to prevent overflow */
+        enet_uint32 totalReceivedPackets = 0; /**< total UDP packets received, user should reset to
+                                                 0 as needed to prevent overflow */
+        ENetInterceptCallback intercept =
+            nullptr; /**< callback the user can set to intercept received raw UDP packets */
+        size_t connectedPeers        = 0;
+        size_t bandwidthLimitedPeers = 0;
+        size_t duplicatePeers =
+            ENET_PROTOCOL_MAXIMUM_PEER_ID; /**< optional number of allowed peers from duplicate IPs,
+                                              defaults to ENET_PROTOCOL_MAXIMUM_PEER_ID */
+        size_t maximumPacketSize =
+            ENET_HOST_DEFAULT_MAXIMUM_PACKET_SIZE; /**< the maximum allowable packet size that may
+                                                      be sent or received on a peer */
+        size_t maximumWaitingData =
+            ENET_HOST_DEFAULT_MAXIMUM_WAITING_DATA; /**< the maximum aggregate amount of buffer
+              space a peer may use waiting for packets to be delivered */
+
+        _ENetHost() = default;
+
+        _ENetHost(const ENetAddress *address, size_t peerCount, size_t channelLimit,
+                  enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth);
+
+        ~_ENetHost();
+
     } ENetHost;
 
     /**
@@ -983,18 +1001,10 @@ extern "C" {
 
     extern size_t enet_protocol_command_size (enet_uint8);
 
-#ifdef __cplusplus
-}
-#endif
-
 #define ENET_IMPLEMENTATION
 
 #if defined(ENET_IMPLEMENTATION) && !defined(ENET_IMPLEMENTATION_DONE)
 #define ENET_IMPLEMENTATION_DONE 1
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 // =======================================================================//
 // !
@@ -1297,9 +1307,10 @@ extern "C" {
 
     size_t enet_list_size(ENetList *list) {
         size_t size = 0;
-        ENetListIterator position;
 
-        for (position = enet_list_begin(list); position != enet_list_end(list); position = enet_list_next(position)) {
+        for (auto position = enet_list_begin(list); position != enet_list_end(list);
+             position      = enet_list_next(position))
+        {
             ++size;
         }
 
@@ -1423,13 +1434,12 @@ extern "C" {
     }
 
     static void initialize_crc32(void) {
-        int byte;
-
-        for (byte = 0; byte < 256; ++byte) {
+        for (auto byte = 0; byte < 256; ++byte)
+        {
             enet_uint32 crc = reflect_crc(byte, 8) << 24;
-            int offset;
 
-            for (offset = 0; offset < 8; ++offset) {
+            for (auto offset = 0; offset < 8; ++offset)
+            {
                 if (crc & 0x80000000) {
                     crc = (crc << 1) ^ 0x04c11db7;
                 } else {
@@ -1653,22 +1663,25 @@ extern "C" {
 
     static ENetProtocolCommand enet_protocol_remove_sent_reliable_command(ENetPeer *peer, enet_uint16 reliableSequenceNumber, enet_uint8 channelID) {
         ENetOutgoingCommand *outgoingCommand = nullptr;
-        ENetListIterator currentCommand;
+        ENetListIterator     currentCommand;
         ENetProtocolCommand commandNumber;
-        int wasSent = 1;
+        int                  wasSent = 1;
 
         for (currentCommand = enet_list_begin(&peer->sentReliableCommands);
-            currentCommand != enet_list_end(&peer->sentReliableCommands);
-            currentCommand = enet_list_next(currentCommand)
-        ) {
-            outgoingCommand = (ENetOutgoingCommand *) currentCommand;
+             currentCommand != enet_list_end(&peer->sentReliableCommands);
+             currentCommand = enet_list_next(currentCommand))
+        {
+            outgoingCommand = (ENetOutgoingCommand *)currentCommand;
 
-            if (outgoingCommand->reliableSequenceNumber == reliableSequenceNumber && outgoingCommand->command.header.channelID == channelID) {
+            if (outgoingCommand->reliableSequenceNumber == reliableSequenceNumber &&
+                outgoingCommand->command.header.channelID == channelID)
+            {
                 break;
             }
         }
 
-        if (currentCommand == enet_list_end(&peer->sentReliableCommands)) {
+        if (currentCommand == enet_list_end(&peer->sentReliableCommands))
+        {
             for (currentCommand = enet_list_begin(&peer->outgoingReliableCommands);
                 currentCommand != enet_list_end(&peer->outgoingReliableCommands);
                 currentCommand = enet_list_next(currentCommand)
@@ -1736,9 +1749,8 @@ extern "C" {
     static ENetPeer * enet_protocol_handle_connect(ENetHost *host, ENetProtocolHeader *header, ENetProtocol *command) {
         enet_uint8 incomingSessionID, outgoingSessionID;
         enet_uint32 mtu, windowSize;
-        ENetChannel *channel;
         size_t channelCount, duplicatePeers = 0;
-        ENetPeer *   currentPeer, *peer           = nullptr;
+        ENetPeer *   peer = nullptr;
         ENetProtocol verifyCommand;
 
         channelCount = ENET_NET_TO_HOST_32(command->connect.channelCount);
@@ -1747,7 +1759,9 @@ extern "C" {
             return nullptr;
         }
 
-        for (currentPeer = host->peers; currentPeer < &host->peers[host->peerCount]; ++currentPeer) {
+        for (auto currentPeer = host->peers; currentPeer < &host->peers[host->peerCount];
+             ++currentPeer)
+        {
             if (currentPeer->state == ENET_PEER_STATE_DISCONNECTED) {
                 if (peer == nullptr)
                 {
@@ -1803,7 +1817,8 @@ extern "C" {
         }
         peer->incomingSessionID = outgoingSessionID;
 
-        for (channel = peer->channels; channel < &peer->channels[channelCount]; ++channel) {
+        for (auto channel = peer->channels; channel < &peer->channels[channelCount]; ++channel)
+        {
             channel->outgoingReliableSequenceNumber   = 0;
             channel->outgoingUnreliableSequenceNumber = 0;
             channel->incomingReliableSequenceNumber   = 0;
@@ -2689,9 +2704,9 @@ extern "C" {
     } /* enet_protocol_handle_incoming_commands */
 
     static int enet_protocol_receive_incoming_commands(ENetHost *host, ENetEvent *event) {
-        int packets;
 
-        for (packets = 0; packets < 256; ++packets) {
+        for (auto packets = 0; packets < 256; ++packets)
+        {
             int receivedLength;
             ENetBuffer buffer;
 
@@ -3729,9 +3744,9 @@ extern "C" {
     }
 
     static void enet_peer_remove_incoming_commands(ENetList *queue, ENetListIterator startCommand, ENetListIterator endCommand) {
-        ENetListIterator currentCommand;
 
-        for (currentCommand = startCommand; currentCommand != endCommand;) {
+        for (auto currentCommand = startCommand; currentCommand != endCommand;)
+        {
             ENetIncomingCommand *incomingCommand = (ENetIncomingCommand *) currentCommand;
 
             currentCommand = enet_list_next(currentCommand);
@@ -3760,7 +3775,6 @@ extern "C" {
     }
 
     void enet_peer_reset_queues(ENetPeer *peer) {
-        ENetChannel *channel;
 
         if (peer->needsDispatch) {
             enet_list_remove(&peer->dispatchList);
@@ -3779,7 +3793,9 @@ extern "C" {
 
         if (peer->channels != nullptr && peer->channelCount > 0)
         {
-            for (channel = peer->channels; channel < &peer->channels[peer->channelCount]; ++channel) {
+            for (auto channel = peer->channels; channel < &peer->channels[peer->channelCount];
+                 ++channel)
+            {
                 enet_peer_reset_incoming_commands(&channel->incomingReliableCommands);
                 enet_peer_reset_incoming_commands(&channel->incomingUnreliableCommands);
             }
@@ -4453,57 +4469,53 @@ extern "C" {
      * determine the window size of a connection which limits the amount of reliable packets that
      * may be in transit at any given time.
      */
-    ENetHost * enet_host_create(const ENetAddress *address, size_t peerCount, size_t channelLimit, enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth) {
-        ENetHost *host;
-        ENetPeer *currentPeer;
-
+    _ENetHost::_ENetHost(const ENetAddress *address, size_t peerCount, size_t channelLimit,
+                         enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth)
+    {
         if (peerCount > ENET_PROTOCOL_MAXIMUM_PEER_ID) {
-            return nullptr;
+            peerCount = ENET_PROTOCOL_MAXIMUM_PEER_ID;
         }
 
-        host = (ENetHost *) enet_malloc(sizeof(ENetHost));
-        if (host == nullptr)
+        this->peers = (ENetPeer *)enet_malloc(peerCount * sizeof(ENetPeer));
+        if (this->peers == nullptr)
         {
-            return nullptr;
+            assert(0);
+            this->~_ENetHost();
+            return;
         }
-        memset(host, 0, sizeof(ENetHost));
 
-        host->peers = (ENetPeer *) enet_malloc(peerCount * sizeof(ENetPeer));
-        if (host->peers == nullptr)
+        memset(this->peers, 0, peerCount * sizeof(ENetPeer));
+
+        this->socket = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+        if (this->socket != ENET_SOCKET_NULL)
         {
-            enet_free(host);
-            return nullptr;
+            enet_socket_set_option(this->socket, ENET_SOCKOPT_IPV6_V6ONLY, 0);
         }
 
-        memset(host->peers, 0, peerCount * sizeof(ENetPeer));
-
-        host->socket = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
-        if (host->socket != ENET_SOCKET_NULL) {
-            enet_socket_set_option (host->socket, ENET_SOCKOPT_IPV6_V6ONLY, 0);
-        }
-
-        if (host->socket == ENET_SOCKET_NULL ||
-            (address != nullptr && enet_socket_bind(host->socket, address) < 0))
+        if (this->socket == ENET_SOCKET_NULL ||
+            (address != nullptr && enet_socket_bind(this->socket, address) < 0))
         {
-            if (host->socket != ENET_SOCKET_NULL) {
-                enet_socket_destroy(host->socket);
+            if (this->socket != ENET_SOCKET_NULL)
+            {
+                enet_socket_destroy(this->socket);
             }
 
-            enet_free(host->peers);
-            enet_free(host);
+            enet_free(this->peers);
+            assert(0);
+            this->~_ENetHost();
 
-            return nullptr;
+            return;
         }
 
-        enet_socket_set_option(host->socket, ENET_SOCKOPT_NONBLOCK, 1);
-        enet_socket_set_option(host->socket, ENET_SOCKOPT_BROADCAST, 1);
-        enet_socket_set_option(host->socket, ENET_SOCKOPT_RCVBUF, ENET_HOST_RECEIVE_BUFFER_SIZE);
-        enet_socket_set_option(host->socket, ENET_SOCKOPT_SNDBUF, ENET_HOST_SEND_BUFFER_SIZE);
-        enet_socket_set_option(host->socket, ENET_SOCKOPT_IPV6_V6ONLY, 0);
+        enet_socket_set_option(this->socket, ENET_SOCKOPT_NONBLOCK, 1);
+        enet_socket_set_option(this->socket, ENET_SOCKOPT_BROADCAST, 1);
+        enet_socket_set_option(this->socket, ENET_SOCKOPT_RCVBUF, ENET_HOST_RECEIVE_BUFFER_SIZE);
+        enet_socket_set_option(this->socket, ENET_SOCKOPT_SNDBUF, ENET_HOST_SEND_BUFFER_SIZE);
+        enet_socket_set_option(this->socket, ENET_SOCKOPT_IPV6_V6ONLY, 0);
 
-        if (address != nullptr && enet_socket_get_address(host->socket, &host->address) < 0)
+        if (address != nullptr && enet_socket_get_address(this->socket, &this->address) < 0)
         {
-            host->address = *address;
+            this->address = *address;
         }
 
         if (!channelLimit || channelLimit > ENET_PROTOCOL_MAXIMUM_CHANNEL_COUNT) {
@@ -4512,43 +4524,24 @@ extern "C" {
             channelLimit = ENET_PROTOCOL_MINIMUM_CHANNEL_COUNT;
         }
 
-        host->randomSeed                    = (enet_uint32) (size_t) host;
-        host->randomSeed                    += enet_host_random_seed();
-        host->randomSeed                    = (host->randomSeed << 16) | (host->randomSeed >> 16);
-        host->channelLimit                  = channelLimit;
-        host->incomingBandwidth             = incomingBandwidth;
-        host->outgoingBandwidth             = outgoingBandwidth;
-        host->bandwidthThrottleEpoch        = 0;
-        host->recalculateBandwidthLimits    = 0;
-        host->mtu                           = ENET_HOST_DEFAULT_MTU;
-        host->peerCount                     = peerCount;
-        host->commandCount                  = 0;
-        host->bufferCount                   = 0;
-        host->checksum                      = nullptr;
-        host->receivedAddress.host          = ENET_HOST_ANY;
-        host->receivedAddress.port          = 0;
-        host->receivedData                  = nullptr;
-        host->receivedDataLength            = 0;
-        host->totalSentData                 = 0;
-        host->totalSentPackets              = 0;
-        host->totalReceivedData             = 0;
-        host->totalReceivedPackets          = 0;
-        host->connectedPeers                = 0;
-        host->bandwidthLimitedPeers         = 0;
-        host->duplicatePeers                = ENET_PROTOCOL_MAXIMUM_PEER_ID;
-        host->maximumPacketSize             = ENET_HOST_DEFAULT_MAXIMUM_PACKET_SIZE;
-        host->maximumWaitingData            = ENET_HOST_DEFAULT_MAXIMUM_WAITING_DATA;
-        host->compressor.context            = nullptr;
-        host->compressor.compress           = nullptr;
-        host->compressor.decompress         = nullptr;
-        host->compressor.destroy            = nullptr;
-        host->intercept                     = nullptr;
+        this->randomSeed = (enet_uint32)(size_t)this;
+        this->randomSeed += enet_host_random_seed();
+        this->randomSeed                 = (this->randomSeed << 16) | (this->randomSeed >> 16);
+        this->channelLimit               = channelLimit;
+        this->incomingBandwidth          = incomingBandwidth;
+        this->outgoingBandwidth          = outgoingBandwidth;
+        this->peerCount                  = peerCount;
+        this->receivedAddress.host       = ENET_HOST_ANY;
+        this->receivedAddress.port       = 0;
+        this->compressor                 = {nullptr, nullptr, nullptr, nullptr};
 
-        enet_list_clear(&host->dispatchQueue);
+        enet_list_clear(&dispatchQueue);
 
-        for (currentPeer = host->peers; currentPeer < &host->peers[host->peerCount]; ++currentPeer) {
-            currentPeer->host = host;
-            currentPeer->incomingPeerID    = currentPeer - host->peers;
+        for (auto currentPeer = this->peers; currentPeer < &this->peers[this->peerCount];
+             ++currentPeer)
+        {
+            currentPeer->host              = this;
+            currentPeer->incomingPeerID    = currentPeer - this->peers;
             currentPeer->outgoingSessionID = currentPeer->incomingSessionID = 0xFF;
             currentPeer->data                                               = nullptr;
 
@@ -4561,34 +4554,27 @@ extern "C" {
 
             enet_peer_reset(currentPeer);
         }
-
-        return host;
     } /* enet_host_create */
 
     /** Destroys the host and all resources associated with it.
      *  @param host pointer to the host to destroy
      */
-    void enet_host_destroy(ENetHost *host) {
-        ENetPeer *currentPeer;
+    _ENetHost::~_ENetHost()
+    {
+        enet_socket_destroy(this->socket);
 
-        if (host == nullptr)
+        for (auto currentPeer = this->peers; currentPeer < &this->peers[this->peerCount];
+             ++currentPeer)
         {
-            return;
-        }
-
-        enet_socket_destroy(host->socket);
-
-        for (currentPeer = host->peers; currentPeer < &host->peers[host->peerCount]; ++currentPeer) {
             enet_peer_reset(currentPeer);
         }
 
-        if (host->compressor.context != nullptr && host->compressor.destroy)
+        if (this->compressor.context != nullptr && this->compressor.destroy != nullptr)
         {
-            (*host->compressor.destroy)(host->compressor.context);
+            (*this->compressor.destroy)(this->compressor.context);
         }
 
-        enet_free(host->peers);
-        enet_free(host);
+        enet_free(this->peers);
     }
 
     /** Initiates a connection to a foreign host.
@@ -4601,8 +4587,6 @@ extern "C" {
      *  notifies of an ENET_EVENT_TYPE_CONNECT event for the peer.
      */
     ENetPeer * enet_host_connect(ENetHost *host, const ENetAddress *address, size_t channelCount, enet_uint32 data) {
-        ENetPeer *currentPeer;
-        ENetChannel *channel;
         ENetProtocol command;
 
         if (channelCount < ENET_PROTOCOL_MINIMUM_CHANNEL_COUNT) {
@@ -4611,11 +4595,9 @@ extern "C" {
             channelCount = ENET_PROTOCOL_MAXIMUM_CHANNEL_COUNT;
         }
 
-        for (currentPeer = host->peers; currentPeer < &host->peers[host->peerCount]; ++currentPeer) {
-            if (currentPeer->state == ENET_PEER_STATE_DISCONNECTED) {
-                break;
-            }
-        }
+        auto currentPeer = std::find_if(host->peers, &host->peers[host->peerCount], [](auto &peer) {
+            return peer.state == ENET_PEER_STATE_DISCONNECTED;
+        });
 
         if (currentPeer >= &host->peers[host->peerCount]) {
             return nullptr;
@@ -4644,7 +4626,9 @@ extern "C" {
             currentPeer->windowSize = ENET_PROTOCOL_MAXIMUM_WINDOW_SIZE;
         }
 
-        for (channel = currentPeer->channels; channel < &currentPeer->channels[channelCount]; ++channel) {
+        for (auto channel = currentPeer->channels; channel < &currentPeer->channels[channelCount];
+             ++channel)
+        {
             channel->outgoingReliableSequenceNumber   = 0;
             channel->outgoingUnreliableSequenceNumber = 0;
             channel->incomingReliableSequenceNumber   = 0;
@@ -4684,9 +4668,10 @@ extern "C" {
      *  @param packet packet to broadcast
      */
     void enet_host_broadcast(ENetHost *host, enet_uint8 channelID, ENetPacket *packet) {
-        ENetPeer *currentPeer;
 
-        for (currentPeer = host->peers; currentPeer < &host->peers[host->peerCount]; ++currentPeer) {
+        for (auto currentPeer = host->peers; currentPeer < &host->peers[host->peerCount];
+             ++currentPeer)
+        {
             if (currentPeer->state != ENET_PEER_STATE_CONNECTED) {
                 continue;
             }
@@ -4796,7 +4781,6 @@ extern "C" {
         enet_uint32 bandwidthLimit    = 0;
 
         int needsAdjustment = host->bandwidthLimitedPeers > 0 ? 1 : 0;
-        ENetPeer *peer;
         ENetProtocol command;
 
         if (elapsedTime < ENET_HOST_BANDWIDTH_THROTTLE_INTERVAL) {
@@ -4817,8 +4801,11 @@ extern "C" {
             dataTotal = 0;
             bandwidth = (host->outgoingBandwidth * elapsedTime) / 1000;
 
-            for (peer = host->peers; peer < &host->peers[host->peerCount]; ++peer) {
-                if (peer->state != ENET_PEER_STATE_CONNECTED && peer->state != ENET_PEER_STATE_DISCONNECT_LATER) {
+            for (auto peer = host->peers; peer < &host->peers[host->peerCount]; ++peer)
+            {
+                if (peer->state != ENET_PEER_STATE_CONNECTED &&
+                    peer->state != ENET_PEER_STATE_DISCONNECT_LATER)
+                {
                     continue;
                 }
 
@@ -4835,7 +4822,8 @@ extern "C" {
                 throttle = (bandwidth * ENET_PEER_PACKET_THROTTLE_SCALE) / dataTotal;
             }
 
-            for (peer = host->peers; peer < &host->peers[host->peerCount]; ++peer) {
+            for (auto peer = host->peers; peer < &host->peers[host->peerCount]; ++peer)
+            {
                 enet_uint32 peerBandwidth;
 
                 if ((peer->state != ENET_PEER_STATE_CONNECTED && peer->state != ENET_PEER_STATE_DISCONNECT_LATER) ||
@@ -4879,9 +4867,7 @@ extern "C" {
                 throttle = (bandwidth * ENET_PEER_PACKET_THROTTLE_SCALE) / dataTotal;
             }
 
-            for (peer = host->peers;
-              peer < &host->peers[host->peerCount];
-              ++peer)
+            for (auto peer = host->peers; peer < &host->peers[host->peerCount]; ++peer)
             {
                 if ((peer->state != ENET_PEER_STATE_CONNECTED && peer->state != ENET_PEER_STATE_DISCONNECT_LATER) || peer->outgoingBandwidthThrottleEpoch == timeCurrent) {
                     continue;
@@ -4912,7 +4898,8 @@ extern "C" {
                     needsAdjustment = 0;
                     bandwidthLimit  = bandwidth / peersRemaining;
 
-                    for (peer = host->peers; peer < &host->peers[host->peerCount]; ++peer) {
+                    for (auto peer = host->peers; peer < &host->peers[host->peerCount]; ++peer)
+                    {
                         if ((peer->state != ENET_PEER_STATE_CONNECTED && peer->state != ENET_PEER_STATE_DISCONNECT_LATER) ||
                             peer->incomingBandwidthThrottleEpoch == timeCurrent
                         ) {
@@ -4932,7 +4919,8 @@ extern "C" {
                 }
             }
 
-            for (peer = host->peers; peer < &host->peers[host->peerCount]; ++peer) {
+            for (auto peer = host->peers; peer < &host->peers[host->peerCount]; ++peer)
+            {
                 if (peer->state != ENET_PEER_STATE_CONNECTED && peer->state != ENET_PEER_STATE_DISCONNECT_LATER) {
                     continue;
                 }
@@ -5107,7 +5095,7 @@ extern "C" {
     }
 
     int enet_address_set_host(ENetAddress *address, const char *name) {
-        struct addrinfo hints, *resultList = nullptr, *result = nullptr;
+        struct addrinfo hints, *resultList = nullptr;
 
         memset(&hints, 0, sizeof(hints));
         hints.ai_family = AF_UNSPEC;
@@ -5117,7 +5105,7 @@ extern "C" {
             return -1;
         }
 
-        for (result = resultList; result != nullptr; result = result->ai_next)
+        for (auto result = resultList; result != nullptr; result = result->ai_next)
         {
             if (result->ai_addr != nullptr && result->ai_addrlen >= sizeof(struct sockaddr_in))
             {
@@ -6049,12 +6037,7 @@ extern "C" {
         return 0;
     } /* enet_socket_wait */
 
-    #endif // _WIN32
-
-
-#ifdef __cplusplus
-}
-#endif
+#endif // _WIN32
 
 #endif // ENET_IMPLEMENTATION
 #endif // ENET_INCLUDE_H
