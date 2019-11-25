@@ -730,6 +730,8 @@
      *  @sa enet_host_bandwidth_throttle()
      */
     typedef struct _ENetHost {
+        std::vector<ENetPeer> peers;     /**< array of peers allocated for this host */
+        size_t                peerCount; /**< number of peers allocated for this host */
         ENetSocket            socket;
         ENetAddress           address;           /**< Internet address of the host */
         enet_uint32           incomingBandwidth; /**< downstream bandwidth of the host */
@@ -738,8 +740,6 @@
         enet_uint32           mtu                    = ENET_HOST_DEFAULT_MTU;
         enet_uint32           randomSeed;
         int                   recalculateBandwidthLimits = 0;
-        ENetPeer *            peers;        /**< array of peers allocated for this host */
-        size_t                peerCount;    /**< number of peers allocated for this host */
         size_t                channelLimit; /**< maximum number of channels allowed for connected peers */
         enet_uint32           serviceTime;
         ENetList              dispatchQueue;
@@ -1759,16 +1759,21 @@
             return nullptr;
         }
 
-        for (auto currentPeer = host->peers; currentPeer < &host->peers[host->peerCount];
-             ++currentPeer)
+        for (auto &currentPeer : host->peers)
         {
-            if (currentPeer->state == ENET_PEER_STATE_DISCONNECTED) {
+            if (currentPeer.state == ENET_PEER_STATE_DISCONNECTED)
+            {
                 if (peer == nullptr)
                 {
-                    peer = currentPeer;
+                    peer = &currentPeer;
                 }
-            } else if (currentPeer->state != ENET_PEER_STATE_CONNECTING && in6_equal(currentPeer->address.host, host->receivedAddress.host)) {
-                if (currentPeer->address.port == host->receivedAddress.port && currentPeer->connectID == command->connect.connectID) {
+            }
+            else if (currentPeer.state != ENET_PEER_STATE_CONNECTING &&
+                     in6_equal(currentPeer.address.host, host->receivedAddress.host))
+            {
+                if (currentPeer.address.port == host->receivedAddress.port &&
+                    currentPeer.connectID == command->connect.connectID)
+                {
                     return nullptr;
                 }
 
@@ -3092,14 +3097,16 @@
     static int enet_protocol_send_outgoing_commands(ENetHost *host, ENetEvent *event, int checkForTimeouts) {
         enet_uint8 headerData[sizeof(ENetProtocolHeader) + sizeof(enet_uint32)];
         ENetProtocolHeader *header = (ENetProtocolHeader *) headerData;
-        ENetPeer *currentPeer;
         int sentLength;
         size_t shouldCompress = 0;
         host->continueSending = 1;
 
         while (host->continueSending)
-            for (host->continueSending = 0, currentPeer = host->peers; currentPeer < &host->peers[host->peerCount]; ++currentPeer) {
-                if (currentPeer->state == ENET_PEER_STATE_DISCONNECTED || currentPeer->state == ENET_PEER_STATE_ZOMBIE) {
+            for (host->continueSending = 0; auto &currentPeer : host->peers)
+            {
+                if (currentPeer.state == ENET_PEER_STATE_DISCONNECTED ||
+                    currentPeer.state == ENET_PEER_STATE_ZOMBIE)
+                {
                     continue;
                 }
 
@@ -3108,15 +3115,15 @@
                 host->bufferCount  = 1;
                 host->packetSize   = sizeof(ENetProtocolHeader);
 
-                if (!enet_list_empty(&currentPeer->acknowledgements)) {
-                    enet_protocol_send_acknowledgements(host, currentPeer);
+                if (!enet_list_empty(&currentPeer.acknowledgements))
+                {
+                    enet_protocol_send_acknowledgements(host, &currentPeer);
                 }
 
-                if (checkForTimeouts != 0 &&
-                    !enet_list_empty(&currentPeer->sentReliableCommands) &&
-                    ENET_TIME_GREATER_EQUAL(host->serviceTime, currentPeer->nextTimeout) &&
-                    enet_protocol_check_timeouts(host, currentPeer, event) == 1
-                ) {
+                if (checkForTimeouts != 0 && !enet_list_empty(&currentPeer.sentReliableCommands) &&
+                    ENET_TIME_GREATER_EQUAL(host->serviceTime, currentPeer.nextTimeout) &&
+                    enet_protocol_check_timeouts(host, &currentPeer, event) == 1)
+                {
                     if (event != nullptr && event->type != ENET_EVENT_TYPE_NONE)
                     {
                         return 1;
@@ -3127,60 +3134,71 @@
                     }
                 }
 
-                if ((enet_list_empty(&currentPeer->outgoingReliableCommands) ||
-                    enet_protocol_send_reliable_outgoing_commands(host, currentPeer)) &&
-                    enet_list_empty(&currentPeer->sentReliableCommands) &&
-                    ENET_TIME_DIFFERENCE(host->serviceTime, currentPeer->lastReceiveTime) >= currentPeer->pingInterval &&
-                    currentPeer->mtu - host->packetSize >= sizeof(ENetProtocolPing)
-                ) {
-                    enet_peer_ping(currentPeer);
-                    enet_protocol_send_reliable_outgoing_commands(host, currentPeer);
+                if ((enet_list_empty(&currentPeer.outgoingReliableCommands) ||
+                     enet_protocol_send_reliable_outgoing_commands(host, &currentPeer)) &&
+                    enet_list_empty(&currentPeer.sentReliableCommands) &&
+                    ENET_TIME_DIFFERENCE(host->serviceTime, currentPeer.lastReceiveTime) >=
+                        currentPeer.pingInterval &&
+                    currentPeer.mtu - host->packetSize >= sizeof(ENetProtocolPing))
+                {
+                    enet_peer_ping(&currentPeer);
+                    enet_protocol_send_reliable_outgoing_commands(host, &currentPeer);
                 }
 
-                if (!enet_list_empty(&currentPeer->outgoingUnreliableCommands)) {
-                    enet_protocol_send_unreliable_outgoing_commands(host, currentPeer);
+                if (!enet_list_empty(&currentPeer.outgoingUnreliableCommands))
+                {
+                    enet_protocol_send_unreliable_outgoing_commands(host, &currentPeer);
                 }
 
                 if (host->commandCount == 0) {
                     continue;
                 }
 
-                if (currentPeer->packetLossEpoch == 0) {
-                    currentPeer->packetLossEpoch = host->serviceTime;
-                } else if (ENET_TIME_DIFFERENCE(host->serviceTime, currentPeer->packetLossEpoch) >= ENET_PEER_PACKET_LOSS_INTERVAL && currentPeer->packetsSent > 0) {
-                    enet_uint32 packetLoss = currentPeer->packetsLost * ENET_PEER_PACKET_LOSS_SCALE / currentPeer->packetsSent;
+                if (currentPeer.packetLossEpoch == 0)
+                {
+                    currentPeer.packetLossEpoch = host->serviceTime;
+                }
+                else if (ENET_TIME_DIFFERENCE(host->serviceTime, currentPeer.packetLossEpoch) >=
+                             ENET_PEER_PACKET_LOSS_INTERVAL &&
+                         currentPeer.packetsSent > 0)
+                {
+                    enet_uint32 packetLoss = currentPeer.packetsLost * ENET_PEER_PACKET_LOSS_SCALE /
+                                             currentPeer.packetsSent;
 
-                    #ifdef ENET_DEBUG
+#ifdef ENET_DEBUG
                     printf("peer %u: %f%%+-%f%% packet loss, %u+-%u ms round trip time, %f%% "
                            "throttle, %u/%u outgoing, %u/%u incoming\n",
-                           currentPeer->incomingPeerID,
-                           currentPeer->packetLoss / (float)ENET_PEER_PACKET_LOSS_SCALE,
-                           currentPeer->packetLossVariance / (float)ENET_PEER_PACKET_LOSS_SCALE,
-                           currentPeer->roundTripTime, currentPeer->roundTripTimeVariance,
-                           currentPeer->packetThrottle / (float)ENET_PEER_PACKET_THROTTLE_SCALE,
-                           enet_list_size(&currentPeer->outgoingReliableCommands),
-                           enet_list_size(&currentPeer->outgoingUnreliableCommands),
-                           currentPeer->channels != nullptr
-                               ? enet_list_size(&currentPeer->channels->incomingReliableCommands)
+                           currentPeer.incomingPeerID,
+                           currentPeer.packetLoss / (float)ENET_PEER_PACKET_LOSS_SCALE,
+                           currentPeer.packetLossVariance / (float)ENET_PEER_PACKET_LOSS_SCALE,
+                           currentPeer.roundTripTime, currentPeer.roundTripTimeVariance,
+                           currentPeer.packetThrottle / (float)ENET_PEER_PACKET_THROTTLE_SCALE,
+                           enet_list_size(&currentPeer.outgoingReliableCommands),
+                           enet_list_size(&currentPeer.outgoingUnreliableCommands),
+                           currentPeer.channels != nullptr
+                               ? enet_list_size(&currentPeer.channels->incomingReliableCommands)
                                : 0,
-                           currentPeer->channels != nullptr
-                               ? enet_list_size(&currentPeer->channels->incomingUnreliableCommands)
+                           currentPeer.channels != nullptr
+                               ? enet_list_size(&currentPeer.channels->incomingUnreliableCommands)
                                : 0);
 #endif
 
-                    currentPeer->packetLossVariance -= currentPeer->packetLossVariance / 4;
+                    currentPeer.packetLossVariance -= currentPeer.packetLossVariance / 4;
 
-                    if (packetLoss >= currentPeer->packetLoss) {
-                        currentPeer->packetLoss         += (packetLoss - currentPeer->packetLoss) / 8;
-                        currentPeer->packetLossVariance += (packetLoss - currentPeer->packetLoss) / 4;
-                    } else {
-                        currentPeer->packetLoss         -= (currentPeer->packetLoss - packetLoss) / 8;
-                        currentPeer->packetLossVariance += (currentPeer->packetLoss - packetLoss) / 4;
+                    if (packetLoss >= currentPeer.packetLoss)
+                    {
+                        currentPeer.packetLoss += (packetLoss - currentPeer.packetLoss) / 8;
+                        currentPeer.packetLossVariance += (packetLoss - currentPeer.packetLoss) / 4;
+                    }
+                    else
+                    {
+                        currentPeer.packetLoss -= (currentPeer.packetLoss - packetLoss) / 8;
+                        currentPeer.packetLossVariance += (currentPeer.packetLoss - packetLoss) / 4;
                     }
 
-                    currentPeer->packetLossEpoch = host->serviceTime;
-                    currentPeer->packetsSent     = 0;
-                    currentPeer->packetsLost     = 0;
+                    currentPeer.packetLossEpoch = host->serviceTime;
+                    currentPeer.packetsSent     = 0;
+                    currentPeer.packetsLost     = 0;
                 }
 
                 host->buffers->data = headerData;
@@ -3200,19 +3218,25 @@
                         host->headerFlags |= ENET_PROTOCOL_HEADER_FLAG_COMPRESSED;
                         shouldCompress     = compressedSize;
                         #ifdef ENET_DEBUG_COMPRESS
-                        printf("peer %u: compressed %u->%u (%u%%)\n", currentPeer->incomingPeerID, originalSize, compressedSize, (compressedSize * 100) / originalSize);
-                        #endif
+                        printf("peer %u: compressed %u->%u (%u%%)\n", currentPeer.incomingPeerID,
+                               originalSize, compressedSize, (compressedSize * 100) / originalSize);
+#endif
                     }
                 }
 
-                if (currentPeer->outgoingPeerID < ENET_PROTOCOL_MAXIMUM_PEER_ID) {
-                    host->headerFlags |= currentPeer->outgoingSessionID << ENET_PROTOCOL_HEADER_SESSION_SHIFT;
+                if (currentPeer.outgoingPeerID < ENET_PROTOCOL_MAXIMUM_PEER_ID)
+                {
+                    host->headerFlags |= currentPeer.outgoingSessionID
+                                         << ENET_PROTOCOL_HEADER_SESSION_SHIFT;
                 }
-                header->peerID = ENET_HOST_TO_NET_16(currentPeer->outgoingPeerID | host->headerFlags);
+                header->peerID =
+                    ENET_HOST_TO_NET_16(currentPeer.outgoingPeerID | host->headerFlags);
                 if (host->checksum != nullptr)
                 {
                     enet_uint32 *checksum = (enet_uint32 *) &headerData[host->buffers->dataLength];
-                    *checksum = currentPeer->outgoingPeerID < ENET_PROTOCOL_MAXIMUM_PEER_ID ? currentPeer->connectID : 0;
+                    *checksum = currentPeer.outgoingPeerID < ENET_PROTOCOL_MAXIMUM_PEER_ID
+                                    ? currentPeer.connectID
+                                    : 0;
                     host->buffers->dataLength += sizeof(enet_uint32);
                     *checksum = host->checksum(host->buffers, host->bufferCount);
                 }
@@ -3223,16 +3247,17 @@
                     host->bufferCount = 2;
                 }
 
-                currentPeer->lastSendTime = host->serviceTime;
-                sentLength = enet_socket_send(host->socket, &currentPeer->address, host->buffers, host->bufferCount);
-                enet_protocol_remove_sent_unreliable_commands(currentPeer);
+                currentPeer.lastSendTime = host->serviceTime;
+                sentLength = enet_socket_send(host->socket, &currentPeer.address, host->buffers,
+                                              host->bufferCount);
+                enet_protocol_remove_sent_unreliable_commands(&currentPeer);
 
                 if (sentLength < 0) {
                     return -1;
                 }
 
                 host->totalSentData += sentLength;
-                currentPeer->totalDataSent += sentLength;
+                currentPeer.totalDataSent += sentLength;
                 host->totalSentPackets++;
             }
 
@@ -4476,15 +4501,7 @@
             peerCount = ENET_PROTOCOL_MAXIMUM_PEER_ID;
         }
 
-        this->peers = (ENetPeer *)enet_malloc(peerCount * sizeof(ENetPeer));
-        if (this->peers == nullptr)
-        {
-            assert(0);
-            this->~_ENetHost();
-            return;
-        }
-
-        memset(this->peers, 0, peerCount * sizeof(ENetPeer));
+        this->peers.resize(peerCount);
 
         this->socket = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
         if (this->socket != ENET_SOCKET_NULL)
@@ -4500,7 +4517,6 @@
                 enet_socket_destroy(this->socket);
             }
 
-            enet_free(this->peers);
             assert(0);
             this->~_ENetHost();
 
@@ -4537,22 +4553,21 @@
 
         enet_list_clear(&dispatchQueue);
 
-        for (auto currentPeer = this->peers; currentPeer < &this->peers[this->peerCount];
-             ++currentPeer)
+        for (auto &currentPeer : this->peers)
         {
-            currentPeer->host              = this;
-            currentPeer->incomingPeerID    = currentPeer - this->peers;
-            currentPeer->outgoingSessionID = currentPeer->incomingSessionID = 0xFF;
-            currentPeer->data                                               = nullptr;
+            currentPeer.host              = this;
+            currentPeer.incomingPeerID    = &currentPeer - &this->peers.front();
+            currentPeer.outgoingSessionID = currentPeer.incomingSessionID = 0xFF;
+            currentPeer.data                                              = nullptr;
 
-            enet_list_clear(&currentPeer->acknowledgements);
-            enet_list_clear(&currentPeer->sentReliableCommands);
-            enet_list_clear(&currentPeer->sentUnreliableCommands);
-            enet_list_clear(&currentPeer->outgoingReliableCommands);
-            enet_list_clear(&currentPeer->outgoingUnreliableCommands);
-            enet_list_clear(&currentPeer->dispatchedCommands);
+            enet_list_clear(&currentPeer.acknowledgements);
+            enet_list_clear(&currentPeer.sentReliableCommands);
+            enet_list_clear(&currentPeer.sentUnreliableCommands);
+            enet_list_clear(&currentPeer.outgoingReliableCommands);
+            enet_list_clear(&currentPeer.outgoingUnreliableCommands);
+            enet_list_clear(&currentPeer.dispatchedCommands);
 
-            enet_peer_reset(currentPeer);
+            enet_peer_reset(&currentPeer);
         }
     } /* enet_host_create */
 
@@ -4563,18 +4578,15 @@
     {
         enet_socket_destroy(this->socket);
 
-        for (auto currentPeer = this->peers; currentPeer < &this->peers[this->peerCount];
-             ++currentPeer)
+        for (auto &currentPeer : this->peers)
         {
-            enet_peer_reset(currentPeer);
+            enet_peer_reset(&currentPeer);
         }
 
         if (this->compressor.context != nullptr && this->compressor.destroy != nullptr)
         {
             (*this->compressor.destroy)(this->compressor.context);
         }
-
-        enet_free(this->peers);
     }
 
     /** Initiates a connection to a foreign host.
@@ -4595,11 +4607,12 @@
             channelCount = ENET_PROTOCOL_MAXIMUM_CHANNEL_COUNT;
         }
 
-        auto currentPeer = std::find_if(host->peers, &host->peers[host->peerCount], [](auto &peer) {
+        auto currentPeer = std::find_if(host->peers.begin(), host->peers.end(), [](auto &peer) {
             return peer.state == ENET_PEER_STATE_DISCONNECTED;
         });
 
-        if (currentPeer >= &host->peers[host->peerCount]) {
+        if (currentPeer >= host->peers.end())
+        {
             return nullptr;
         }
 
@@ -4657,9 +4670,9 @@
         command.connect.connectID                  = currentPeer->connectID;
         command.connect.data                       = ENET_HOST_TO_NET_32(data);
 
-        enet_peer_queue_outgoing_command(currentPeer, &command, nullptr, 0, 0);
+        enet_peer_queue_outgoing_command(currentPeer.operator->(), &command, nullptr, 0, 0);
 
-        return currentPeer;
+        return currentPeer.operator->();
     } /* enet_host_connect */
 
     /** Queues a packet to be sent to all peers associated with the host.
@@ -4669,14 +4682,14 @@
      */
     void enet_host_broadcast(ENetHost *host, enet_uint8 channelID, ENetPacket *packet) {
 
-        for (auto currentPeer = host->peers; currentPeer < &host->peers[host->peerCount];
-             ++currentPeer)
+        for (auto &currentPeer : host->peers)
         {
-            if (currentPeer->state != ENET_PEER_STATE_CONNECTED) {
+            if (currentPeer.state != ENET_PEER_STATE_CONNECTED)
+            {
                 continue;
             }
 
-            enet_peer_send(currentPeer, channelID, packet);
+            enet_peer_send(&currentPeer, channelID, packet);
         }
 
         if (packet->referenceCount == 0) {
@@ -4801,15 +4814,15 @@
             dataTotal = 0;
             bandwidth = (host->outgoingBandwidth * elapsedTime) / 1000;
 
-            for (auto peer = host->peers; peer < &host->peers[host->peerCount]; ++peer)
+            for (auto &peer : host->peers)
             {
-                if (peer->state != ENET_PEER_STATE_CONNECTED &&
-                    peer->state != ENET_PEER_STATE_DISCONNECT_LATER)
+                if (peer.state != ENET_PEER_STATE_CONNECTED &&
+                    peer.state != ENET_PEER_STATE_DISCONNECT_LATER)
                 {
                     continue;
                 }
 
-                dataTotal += peer->outgoingDataTotal;
+                dataTotal += peer.outgoingDataTotal;
             }
         }
 
@@ -4822,36 +4835,42 @@
                 throttle = (bandwidth * ENET_PEER_PACKET_THROTTLE_SCALE) / dataTotal;
             }
 
-            for (auto peer = host->peers; peer < &host->peers[host->peerCount]; ++peer)
+            for (auto &peer : host->peers)
             {
                 enet_uint32 peerBandwidth;
 
-                if ((peer->state != ENET_PEER_STATE_CONNECTED && peer->state != ENET_PEER_STATE_DISCONNECT_LATER) ||
-                    peer->incomingBandwidth == 0 ||
-                    peer->outgoingBandwidthThrottleEpoch == timeCurrent
-                ) {
+                if ((peer.state != ENET_PEER_STATE_CONNECTED &&
+                     peer.state != ENET_PEER_STATE_DISCONNECT_LATER) ||
+                    peer.incomingBandwidth == 0 ||
+                    peer.outgoingBandwidthThrottleEpoch == timeCurrent)
+                {
                     continue;
                 }
 
-                peerBandwidth = (peer->incomingBandwidth * elapsedTime) / 1000;
-                if ((throttle * peer->outgoingDataTotal) / ENET_PEER_PACKET_THROTTLE_SCALE <= peerBandwidth) {
+                peerBandwidth = (peer.incomingBandwidth * elapsedTime) / 1000;
+                if ((throttle * peer.outgoingDataTotal) / ENET_PEER_PACKET_THROTTLE_SCALE <=
+                    peerBandwidth)
+                {
                     continue;
                 }
 
-                peer->packetThrottleLimit = (peerBandwidth * ENET_PEER_PACKET_THROTTLE_SCALE) / peer->outgoingDataTotal;
+                peer.packetThrottleLimit =
+                    (peerBandwidth * ENET_PEER_PACKET_THROTTLE_SCALE) / peer.outgoingDataTotal;
 
-                if (peer->packetThrottleLimit == 0) {
-                    peer->packetThrottleLimit = 1;
+                if (peer.packetThrottleLimit == 0)
+                {
+                    peer.packetThrottleLimit = 1;
                 }
 
-                if (peer->packetThrottle > peer->packetThrottleLimit) {
-                    peer->packetThrottle = peer->packetThrottleLimit;
+                if (peer.packetThrottle > peer.packetThrottleLimit)
+                {
+                    peer.packetThrottle = peer.packetThrottleLimit;
                 }
 
-                peer->outgoingBandwidthThrottleEpoch = timeCurrent;
+                peer.outgoingBandwidthThrottleEpoch = timeCurrent;
 
-                peer->incomingDataTotal = 0;
-                peer->outgoingDataTotal = 0;
+                peer.incomingDataTotal = 0;
+                peer.outgoingDataTotal = 0;
 
                 needsAdjustment = 1;
                 --peersRemaining;
@@ -4867,20 +4886,24 @@
                 throttle = (bandwidth * ENET_PEER_PACKET_THROTTLE_SCALE) / dataTotal;
             }
 
-            for (auto peer = host->peers; peer < &host->peers[host->peerCount]; ++peer)
+            for (auto &peer : host->peers)
             {
-                if ((peer->state != ENET_PEER_STATE_CONNECTED && peer->state != ENET_PEER_STATE_DISCONNECT_LATER) || peer->outgoingBandwidthThrottleEpoch == timeCurrent) {
+                if ((peer.state != ENET_PEER_STATE_CONNECTED &&
+                     peer.state != ENET_PEER_STATE_DISCONNECT_LATER) ||
+                    peer.outgoingBandwidthThrottleEpoch == timeCurrent)
+                {
                     continue;
                 }
 
-                peer->packetThrottleLimit = throttle;
+                peer.packetThrottleLimit = throttle;
 
-                if (peer->packetThrottle > peer->packetThrottleLimit) {
-                    peer->packetThrottle = peer->packetThrottleLimit;
+                if (peer.packetThrottle > peer.packetThrottleLimit)
+                {
+                    peer.packetThrottle = peer.packetThrottleLimit;
                 }
 
-                peer->incomingDataTotal = 0;
-                peer->outgoingDataTotal = 0;
+                peer.incomingDataTotal = 0;
+                peer.outgoingDataTotal = 0;
             }
         }
 
@@ -4898,30 +4921,34 @@
                     needsAdjustment = 0;
                     bandwidthLimit  = bandwidth / peersRemaining;
 
-                    for (auto peer = host->peers; peer < &host->peers[host->peerCount]; ++peer)
+                    for (auto &peer : host->peers)
                     {
-                        if ((peer->state != ENET_PEER_STATE_CONNECTED && peer->state != ENET_PEER_STATE_DISCONNECT_LATER) ||
-                            peer->incomingBandwidthThrottleEpoch == timeCurrent
-                        ) {
+                        if ((peer.state != ENET_PEER_STATE_CONNECTED &&
+                             peer.state != ENET_PEER_STATE_DISCONNECT_LATER) ||
+                            peer.incomingBandwidthThrottleEpoch == timeCurrent)
+                        {
                             continue;
                         }
 
-                        if (peer->outgoingBandwidth > 0 && peer->outgoingBandwidth >= bandwidthLimit) {
+                        if (peer.outgoingBandwidth > 0 && peer.outgoingBandwidth >= bandwidthLimit)
+                        {
                             continue;
                         }
 
-                        peer->incomingBandwidthThrottleEpoch = timeCurrent;
+                        peer.incomingBandwidthThrottleEpoch = timeCurrent;
 
                         needsAdjustment = 1;
                         --peersRemaining;
-                        bandwidth -= peer->outgoingBandwidth;
+                        bandwidth -= peer.outgoingBandwidth;
                     }
                 }
             }
 
-            for (auto peer = host->peers; peer < &host->peers[host->peerCount]; ++peer)
+            for (auto &peer : host->peers)
             {
-                if (peer->state != ENET_PEER_STATE_CONNECTED && peer->state != ENET_PEER_STATE_DISCONNECT_LATER) {
+                if (peer.state != ENET_PEER_STATE_CONNECTED &&
+                    peer.state != ENET_PEER_STATE_DISCONNECT_LATER)
+                {
                     continue;
                 }
 
@@ -4929,13 +4956,17 @@
                 command.header.channelID = 0xFF;
                 command.bandwidthLimit.outgoingBandwidth = ENET_HOST_TO_NET_32(host->outgoingBandwidth);
 
-                if (peer->incomingBandwidthThrottleEpoch == timeCurrent) {
-                    command.bandwidthLimit.incomingBandwidth = ENET_HOST_TO_NET_32(peer->outgoingBandwidth);
-                } else {
+                if (peer.incomingBandwidthThrottleEpoch == timeCurrent)
+                {
+                    command.bandwidthLimit.incomingBandwidth =
+                        ENET_HOST_TO_NET_32(peer.outgoingBandwidth);
+                }
+                else
+                {
                     command.bandwidthLimit.incomingBandwidth = ENET_HOST_TO_NET_32(bandwidthLimit);
                 }
 
-                enet_peer_queue_outgoing_command(peer, &command, nullptr, 0, 0);
+                enet_peer_queue_outgoing_command(&peer, &command, nullptr, 0, 0);
             }
         }
     } /* enet_host_bandwidth_throttle */
