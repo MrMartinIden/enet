@@ -768,7 +768,6 @@
         size_t                channelLimit; /**< maximum number of channels allowed for connected peers */
         enet_uint32           serviceTime;
         ENetList              dispatchQueue;
-        int                   continueSending;
         size_t                packetSize;
         enet_uint16           headerFlags;
         ENetProtocol          commands[ENET_PROTOCOL_MAXIMUM_PACKET_COMMANDS];
@@ -2789,7 +2788,6 @@
                 buffer >= &host->buffers[sizeof(host->buffers) / sizeof(ENetBuffer)] ||
                 peer->mtu - host->packetSize < sizeof(ENetProtocolAcknowledge)
             ) {
-                host->continueSending = 1;
                 break;
             }
 
@@ -2842,7 +2840,6 @@
                 (outgoingCommand->packet != nullptr &&
                  peer->mtu - host->packetSize < commandSize + outgoingCommand->fragmentLength))
             {
-                host->continueSending = 1;
                 break;
             }
 
@@ -3040,7 +3037,6 @@
                  (enet_uint16)(peer->mtu - host->packetSize) <
                      (enet_uint16)(commandSize + outgoingCommand->fragmentLength)))
             {
-                host->continueSending = 1;
                 break;
             }
 
@@ -3102,10 +3098,10 @@
         ENetProtocolHeader *header = (ENetProtocolHeader *) headerData;
         int sentLength;
         size_t shouldCompress = 0;
-        host->continueSending = 1;
+        uint8_t             continueSending = 1;
 
-        while (host->continueSending)
-            for (host->continueSending = 0; auto &currentPeer : host->peers)
+        while (continueSending)
+            for (continueSending = 0; auto &currentPeer : host->peers)
             {
                 if (currentPeer.state == ENET_PEER_STATE_DISCONNECTED ||
                     currentPeer.state == ENET_PEER_STATE_ZOMBIE)
