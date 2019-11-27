@@ -98,7 +98,7 @@ int main() {
     } while (counter > 0);
 
     for (i = 0; i < MAX_CLIENTS; ++i) {
-        enet_peer_disconnect_now(clients[i].peer, 0);
+        clients[i].peer->disconnect_now(0);
         delete clients[i].host;
     }
 
