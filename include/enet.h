@@ -737,7 +737,57 @@
     typedef enet_uint32 (ENET_CALLBACK * ENetChecksumCallback)(const ENetBuffer *buffers, size_t bufferCount);
 
     /** Callback for intercepting received raw UDP packets. Should return 1 to intercept, 0 to ignore, or -1 to propagate an error. */
-    typedef int (ENET_CALLBACK * ENetInterceptCallback)(struct _ENetHost *host, void *event);
+    typedef int(ENET_CALLBACK *ENetInterceptCallback)(struct _ENetHost *host, void *event);
+
+    /**
+     * An ENet event type, as specified in @ref ENetEvent.
+     */
+    typedef enum _ENetEventType
+    {
+        /** no event occurred within the specified time limit */
+        ENET_EVENT_TYPE_NONE = 0,
+
+        /** a connection request initiated by enet_host_connect has completed.
+         * The peer field contains the peer which successfully connected.
+         */
+        ENET_EVENT_TYPE_CONNECT = 1,
+
+        /** a peer has disconnected.  This event is generated on a successful
+         * completion of a disconnect initiated by enet_peer_disconnect, if
+         * a peer has timed out.  The peer field contains the peer
+         * which disconnected. The data field contains user supplied data
+         * describing the disconnection, or 0, if none is available.
+         */
+        ENET_EVENT_TYPE_DISCONNECT = 2,
+
+        /** a packet has been received from a peer.  The peer field specifies the
+         * peer which sent the packet.  The channelID field specifies the channel
+         * number upon which the packet was received.  The packet field contains
+         * the packet that was received; this packet must be destroyed with
+         * enet_packet_destroy after use.
+         */
+        ENET_EVENT_TYPE_RECEIVE = 3,
+
+        /** a peer is disconnected because the host didn't receive the acknowledgment
+         * packet within certain maximum time out. The reason could be because of bad
+         * network connection or  host crashed.
+         */
+        ENET_EVENT_TYPE_DISCONNECT_TIMEOUT = 4,
+    } ENetEventType;
+
+    /**
+     * An ENet event as returned by enet_host_service().
+     *
+     * @sa enet_host_service
+     */
+    typedef struct _ENetEvent
+    {
+        ENetEventType type;    /**< type of the event */
+        ENetPeer *    peer;    /**< peer that generated a connect, disconnect or receive event */
+        enet_uint8  channelID; /**< channel on the peer that generated the event, if appropriate */
+        enet_uint32 data;      /**< data associated with the event, if appropriate */
+        ENetPacket *packet;    /**< packet associated with the event, if appropriate */
+    } ENetEvent;
 
     /** An ENet host for communicating with peers.
      *
@@ -754,7 +804,31 @@
      *  @sa enet_host_bandwidth_limit()
      *  @sa enet_host_bandwidth_throttle()
      */
-    typedef struct _ENetHost {
+    typedef struct _ENetHost
+    {
+
+        _ENetHost() = default;
+
+        _ENetHost(const ENetAddress *address, size_t peerCount, size_t channelLimit,
+                  enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth);
+
+        ~_ENetHost();
+
+        ENetPeer *  connect(const ENetAddress *, size_t, enet_uint32);
+        int         check_events(struct _ENetEvent *);
+        int         service(ENetEvent *, enet_uint32);
+        int         send_raw(const ENetAddress *, enet_uint8 *, size_t);
+        int         send_raw_ex(const ENetAddress *address, enet_uint8 *data, size_t skipBytes,
+                                size_t bytesToSend);
+        void        set_intercept(const ENetInterceptCallback);
+        void        flush();
+        void        broadcast(enet_uint8, ENetPacket *);
+        void        compress(const ENetCompressor *);
+        void        channel_limit(size_t);
+        void        bandwidth_limit(enet_uint32, enet_uint32);
+        void        bandwidth_throttle();
+        enet_uint64 random_seed(void);
+
         std::vector<ENetPeer> peers;     /**< array of peers allocated for this host */
         size_t                peerCount; /**< number of peers allocated for this host */
         ENetSocket            socket;
@@ -803,62 +877,7 @@
             ENET_HOST_DEFAULT_MAXIMUM_WAITING_DATA; /**< the maximum aggregate amount of buffer
               space a peer may use waiting for packets to be delivered */
 
-        _ENetHost() = default;
-
-        _ENetHost(const ENetAddress *address, size_t peerCount, size_t channelLimit,
-                  enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth);
-
-        ~_ENetHost();
-
     } ENetHost;
-
-    /**
-     * An ENet event type, as specified in @ref ENetEvent.
-     */
-    typedef enum _ENetEventType {
-        /** no event occurred within the specified time limit */
-        ENET_EVENT_TYPE_NONE       = 0,
-
-        /** a connection request initiated by enet_host_connect has completed.
-         * The peer field contains the peer which successfully connected.
-         */
-        ENET_EVENT_TYPE_CONNECT    = 1,
-
-        /** a peer has disconnected.  This event is generated on a successful
-         * completion of a disconnect initiated by enet_peer_disconnect, if
-         * a peer has timed out.  The peer field contains the peer
-         * which disconnected. The data field contains user supplied data
-         * describing the disconnection, or 0, if none is available.
-         */
-        ENET_EVENT_TYPE_DISCONNECT = 2,
-
-        /** a packet has been received from a peer.  The peer field specifies the
-         * peer which sent the packet.  The channelID field specifies the channel
-         * number upon which the packet was received.  The packet field contains
-         * the packet that was received; this packet must be destroyed with
-         * enet_packet_destroy after use.
-         */
-        ENET_EVENT_TYPE_RECEIVE    = 3,
-
-        /** a peer is disconnected because the host didn't receive the acknowledgment
-         * packet within certain maximum time out. The reason could be because of bad
-         * network connection or  host crashed.
-         */
-        ENET_EVENT_TYPE_DISCONNECT_TIMEOUT = 4,
-    } ENetEventType;
-
-    /**
-     * An ENet event as returned by enet_host_service().
-     *
-     * @sa enet_host_service
-     */
-    typedef struct _ENetEvent {
-        ENetEventType type;      /**< type of the event */
-        ENetPeer *    peer;      /**< peer that generated a connect, disconnect or receive event */
-        enet_uint8    channelID; /**< channel on the peer that generated the event, if appropriate */
-        enet_uint32   data;      /**< data associated with the event, if appropriate */
-        ENetPacket *  packet;    /**< packet associated with the event, if appropriate */
-    } ENetEvent;
 
 // =======================================================================//
 // !
@@ -985,22 +1004,6 @@
     ENET_API ENetPacket * enet_packet_create_offset(const void *, size_t, size_t, enet_uint32);
     ENET_API void         enet_packet_destroy(ENetPacket *);
     ENET_API enet_uint32  enet_crc32(const ENetBuffer *, size_t);
-
-    ENET_API ENetHost * enet_host_create(const ENetAddress *, size_t, size_t, enet_uint32, enet_uint32);
-    ENET_API void       enet_host_destroy(ENetHost *);
-    ENET_API ENetPeer * enet_host_connect(ENetHost *, const ENetAddress *, size_t, enet_uint32);
-    ENET_API int        enet_host_check_events(ENetHost *, ENetEvent *);
-    ENET_API int        enet_host_service(ENetHost *, ENetEvent *, enet_uint32);    
-    ENET_API int        enet_host_send_raw(ENetHost *, const ENetAddress *, enet_uint8 *, size_t);
-    ENET_API int        enet_host_send_raw_ex(ENetHost *host, const ENetAddress* address, enet_uint8* data, size_t skipBytes, size_t bytesToSend);
-    ENET_API void       enet_host_set_intercept(ENetHost *, const ENetInterceptCallback);
-    ENET_API void       enet_host_flush(ENetHost *);
-    ENET_API void       enet_host_broadcast(ENetHost *, enet_uint8, ENetPacket *);    
-    ENET_API void       enet_host_compress(ENetHost *, const ENetCompressor *);
-    ENET_API void       enet_host_channel_limit(ENetHost *, size_t);
-    ENET_API void       enet_host_bandwidth_limit(ENetHost *, enet_uint32, enet_uint32);
-    extern   void       enet_host_bandwidth_throttle(ENetHost *);
-    extern  enet_uint64 enet_host_random_seed(void);
 
     extern size_t enet_protocol_command_size (enet_uint8);
 
@@ -3269,9 +3272,10 @@
      *  @remarks this function need only be used in circumstances where one wishes to send queued packets earlier than in a call to enet_host_service().
      *  @ingroup host
      */
-    void enet_host_flush(ENetHost *host) {
-        host->serviceTime = enet_time_get();
-        enet_protocol_send_outgoing_commands(host, nullptr, 0);
+    void _ENetHost::flush()
+    {
+        this->serviceTime = enet_time_get();
+        enet_protocol_send_outgoing_commands(this, nullptr, 0);
     }
 
     /** Checks for any queued events on the host and dispatches one if available.
@@ -3283,7 +3287,8 @@
      *  @retval < 0 on failure
      *  @ingroup host
      */
-    int enet_host_check_events(ENetHost *host, ENetEvent *event) {
+    int _ENetHost::check_events(ENetEvent *event)
+    {
         if (event == nullptr)
         {
             return -1;
@@ -3293,7 +3298,7 @@
         event->peer   = nullptr;
         event->packet = nullptr;
 
-        return enet_protocol_dispatch_incoming_commands(host, event);
+        return enet_protocol_dispatch_incoming_commands(this, event);
     }
 
     /** Waits for events on the host specified and shuttles packets between
@@ -3309,7 +3314,8 @@
      *  @remarks enet_host_service should be called fairly regularly for adequate performance
      *  @ingroup host
      */
-    int enet_host_service(ENetHost *host, ENetEvent *event, enet_uint32 timeout) {
+    int _ENetHost::service(ENetEvent *event, enet_uint32 timeout)
+    {
         enet_uint32 waitCondition;
 
         if (event != nullptr)
@@ -3318,122 +3324,132 @@
             event->peer   = nullptr;
             event->packet = nullptr;
 
-            switch (enet_protocol_dispatch_incoming_commands(host, event)) {
-                case 1:
-                    return 1;
+            switch (enet_protocol_dispatch_incoming_commands(this, event))
+            {
+            case 1:
+                return 1;
 
-                case -1:
-                    #ifdef ENET_DEBUG
-                    perror("Error dispatching incoming packets");
-                    #endif
+            case -1:
+#ifdef ENET_DEBUG
+                perror("Error dispatching incoming packets");
+#endif
 
-                    return -1;
+                return -1;
 
-                default:
-                    break;
+            default:
+                break;
             }
         }
 
-        host->serviceTime = enet_time_get();
-        timeout += host->serviceTime;
+        this->serviceTime = enet_time_get();
+        timeout += this->serviceTime;
 
         do {
-            if (ENET_TIME_DIFFERENCE(host->serviceTime, host->bandwidthThrottleEpoch) >= ENET_HOST_BANDWIDTH_THROTTLE_INTERVAL) {
-                enet_host_bandwidth_throttle(host);
+            if (ENET_TIME_DIFFERENCE(this->serviceTime, this->bandwidthThrottleEpoch) >=
+                ENET_HOST_BANDWIDTH_THROTTLE_INTERVAL)
+            {
+                this->bandwidth_throttle();
             }
 
-            switch (enet_protocol_send_outgoing_commands(host, event, 1)) {
-                case 1:
-                    return 1;
+            switch (enet_protocol_send_outgoing_commands(this, event, 1))
+            {
+            case 1:
+                return 1;
 
-                case -1:
-                    #ifdef ENET_DEBUG
-                    perror("Error sending outgoing packets");
-                    #endif
+            case -1:
+#ifdef ENET_DEBUG
+                perror("Error sending outgoing packets");
+#endif
 
-                    return -1;
+                return -1;
 
-                default:
-                    break;
+            default:
+                break;
             }
 
-            switch (enet_protocol_receive_incoming_commands(host, event)) {
-                case 1:
-                    return 1;
+            switch (enet_protocol_receive_incoming_commands(this, event))
+            {
+            case 1:
+                return 1;
 
-                case -1:
-                    #ifdef ENET_DEBUG
-                    perror("Error receiving incoming packets");
-                    #endif
+            case -1:
+#ifdef ENET_DEBUG
+                perror("Error receiving incoming packets");
+#endif
 
-                    return -1;
+                return -1;
 
-                default:
-                    break;
+            default:
+                break;
             }
 
-            switch (enet_protocol_send_outgoing_commands(host, event, 1)) {
-                case 1:
-                    return 1;
+            switch (enet_protocol_send_outgoing_commands(this, event, 1))
+            {
+            case 1:
+                return 1;
 
-                case -1:
-                    #ifdef ENET_DEBUG
-                    perror("Error sending outgoing packets");
-                    #endif
+            case -1:
+#ifdef ENET_DEBUG
+                perror("Error sending outgoing packets");
+#endif
 
-                    return -1;
+                return -1;
 
-                default:
-                    break;
+            default:
+                break;
             }
 
             if (event != nullptr)
             {
-                switch (enet_protocol_dispatch_incoming_commands(host, event)) {
-                    case 1:
-                        return 1;
+                switch (enet_protocol_dispatch_incoming_commands(this, event))
+                {
+                case 1:
+                    return 1;
 
-                    case -1:
-                        #ifdef ENET_DEBUG
-                        perror("Error dispatching incoming packets");
-                        #endif
+                case -1:
+#ifdef ENET_DEBUG
+                    perror("Error dispatching incoming packets");
+#endif
 
-                        return -1;
+                    return -1;
 
-                    default:
-                        break;
+                default:
+                    break;
                 }
             }
 
-            if (ENET_TIME_GREATER_EQUAL(host->serviceTime, timeout)) {
+            if (ENET_TIME_GREATER_EQUAL(this->serviceTime, timeout))
+            {
                 return 0;
             }
 
             do {
-                host->serviceTime = enet_time_get();
+                this->serviceTime = enet_time_get();
 
-                if (ENET_TIME_GREATER_EQUAL(host->serviceTime, timeout)) {
+                if (ENET_TIME_GREATER_EQUAL(this->serviceTime, timeout))
+                {
                     return 0;
                 }
 
                 waitCondition = ENET_SOCKET_WAIT_RECEIVE | ENET_SOCKET_WAIT_INTERRUPT;
-                if (enet_socket_wait(host->socket, &waitCondition, ENET_TIME_DIFFERENCE(timeout, host->serviceTime)) != 0) {
+                if (enet_socket_wait(this->socket, &waitCondition,
+                                     ENET_TIME_DIFFERENCE(timeout, this->serviceTime)) != 0)
+                {
                     return -1;
                 }
             } while (waitCondition & ENET_SOCKET_WAIT_INTERRUPT);
 
-            host->serviceTime = enet_time_get();
+            this->serviceTime = enet_time_get();
         } while (waitCondition & ENET_SOCKET_WAIT_RECEIVE);
 
         return 0;
     } /* enet_host_service */
 
-
-// =======================================================================//
-// !
-// ! Peer
-// !
-// =======================================================================//
+    // =======================================================================//
+    // !
+    // ! Peer
+    // !
+    // =======================================================================//
 
     /** Configures throttle parameter for a peer.
      *
@@ -4024,7 +4040,7 @@
             command.disconnect.data  = ENET_HOST_TO_NET_32(data);
 
             this->queue_outgoing_command(&command, nullptr, 0, 0);
-            enet_host_flush(this->host);
+            this->host->flush();
         }
 
         this->reset();
@@ -4075,7 +4091,7 @@
         }
         else
         {
-            enet_host_flush(this->host);
+            this->host->flush();
             this->reset();
         }
     }
@@ -4616,7 +4632,7 @@
         }
 
         this->randomSeed = (enet_uint32)(size_t)this;
-        this->randomSeed += enet_host_random_seed();
+        this->randomSeed += this->random_seed();
         this->randomSeed                 = (this->randomSeed << 16) | (this->randomSeed >> 16);
         this->channelLimit               = channelLimit;
         this->incomingBandwidth          = incomingBandwidth;
@@ -4673,7 +4689,8 @@
      *  @remarks The peer returned will have not completed the connection until enet_host_service()
      *  notifies of an ENET_EVENT_TYPE_CONNECT event for the peer.
      */
-    ENetPeer * enet_host_connect(ENetHost *host, const ENetAddress *address, size_t channelCount, enet_uint32 data) {
+    ENetPeer *_ENetHost::connect(const ENetAddress *address, size_t channelCount, enet_uint32 data)
+    {
         ENetProtocol command;
 
         if (channelCount < ENET_PROTOCOL_MINIMUM_CHANNEL_COUNT) {
@@ -4682,11 +4699,11 @@
             channelCount = ENET_PROTOCOL_MAXIMUM_CHANNEL_COUNT;
         }
 
-        auto currentPeer = std::find_if(host->peers.begin(), host->peers.end(), [](auto &peer) {
+        auto currentPeer = std::find_if(this->peers.begin(), this->peers.end(), [](auto &peer) {
             return peer.state == ENET_PEER_STATE_DISCONNECTED;
         });
 
-        if (currentPeer >= host->peers.end())
+        if (currentPeer >= this->peers.end())
         {
             return nullptr;
         }
@@ -4700,12 +4717,16 @@
         currentPeer->channelCount = channelCount;
         currentPeer->state        = ENET_PEER_STATE_CONNECTING;
         currentPeer->address      = *address;
-        currentPeer->connectID    = ++host->randomSeed;
+        currentPeer->connectID    = ++this->randomSeed;
 
-        if (host->outgoingBandwidth == 0) {
+        if (this->outgoingBandwidth == 0)
+        {
             currentPeer->windowSize = ENET_PROTOCOL_MAXIMUM_WINDOW_SIZE;
-        } else {
-            currentPeer->windowSize = (host->outgoingBandwidth / ENET_PEER_WINDOW_SIZE_SCALE) * ENET_PROTOCOL_MINIMUM_WINDOW_SIZE;
+        }
+        else
+        {
+            currentPeer->windowSize = (this->outgoingBandwidth / ENET_PEER_WINDOW_SIZE_SCALE) *
+                                      ENET_PROTOCOL_MINIMUM_WINDOW_SIZE;
         }
 
         if (currentPeer->windowSize < ENET_PROTOCOL_MINIMUM_WINDOW_SIZE) {
@@ -4737,8 +4758,8 @@
         command.connect.mtu                        = ENET_HOST_TO_NET_32(currentPeer->mtu);
         command.connect.windowSize                 = ENET_HOST_TO_NET_32(currentPeer->windowSize);
         command.connect.channelCount               = ENET_HOST_TO_NET_32(channelCount);
-        command.connect.incomingBandwidth          = ENET_HOST_TO_NET_32(host->incomingBandwidth);
-        command.connect.outgoingBandwidth          = ENET_HOST_TO_NET_32(host->outgoingBandwidth);
+        command.connect.incomingBandwidth          = ENET_HOST_TO_NET_32(this->incomingBandwidth);
+        command.connect.outgoingBandwidth          = ENET_HOST_TO_NET_32(this->outgoingBandwidth);
         command.connect.packetThrottleInterval     = ENET_HOST_TO_NET_32(currentPeer->packetThrottleInterval);
         command.connect.packetThrottleAcceleration = ENET_HOST_TO_NET_32(currentPeer->packetThrottleAcceleration);
         command.connect.packetThrottleDeceleration = ENET_HOST_TO_NET_32(currentPeer->packetThrottleDeceleration);
@@ -4755,9 +4776,10 @@
      *  @param channelID channel on which to broadcast
      *  @param packet packet to broadcast
      */
-    void enet_host_broadcast(ENetHost *host, enet_uint8 channelID, ENetPacket *packet) {
+    void _ENetHost::broadcast(enet_uint8 channelID, ENetPacket *packet)
+    {
 
-        for (auto &currentPeer : host->peers)
+        for (auto &currentPeer : this->peers)
         {
             if (currentPeer.state != ENET_PEER_STATE_CONNECTED)
             {
@@ -4781,11 +4803,12 @@
      *  @retval <0 error
      *  @sa enet_socket_send
      */
-    int enet_host_send_raw(ENetHost *host, const ENetAddress* address, enet_uint8* data, size_t dataLength) {
+    int _ENetHost::send_raw(const ENetAddress *address, enet_uint8 *data, size_t dataLength)
+    {
         ENetBuffer buffer;
         buffer.data = data;
         buffer.dataLength = dataLength;
-        return enet_socket_send(host->socket, address, &buffer, 1);
+        return enet_socket_send(this->socket, address, &buffer, 1);
     }
 
     /** Sends raw data to specified address with extended arguments. Allows to send only part of data, handy for other programming languages.
@@ -4799,19 +4822,22 @@
      *  @retval <0 error
      *  @sa enet_socket_send
      */
-    int enet_host_send_raw_ex(ENetHost *host, const ENetAddress* address, enet_uint8* data, size_t skipBytes, size_t bytesToSend) {
+    int _ENetHost::send_raw_ex(const ENetAddress *address, enet_uint8 *data, size_t skipBytes,
+                               size_t bytesToSend)
+    {
         ENetBuffer buffer;
         buffer.data = data + skipBytes;
         buffer.dataLength = bytesToSend;
-        return enet_socket_send(host->socket, address, &buffer, 1);
+        return enet_socket_send(this->socket, address, &buffer, 1);
     }
 
     /** Sets intercept callback for the host.
      *  @param host host to set a callback
      *  @param callback intercept callback
      */
-    void enet_host_set_intercept(ENetHost *host, const ENetInterceptCallback callback) {
-        host->intercept = callback;
+    void _ENetHost::set_intercept(const ENetInterceptCallback callback)
+    {
+        this->intercept = callback;
     }
 
     /** Sets the packet compressor the host should use to compress and decompress packets.
@@ -4819,16 +4845,17 @@
      *  @param compressor callbacks for for the packet compressor; if nullptr, then compression is
      * disabled
      */
-    void enet_host_compress(ENetHost *host, const ENetCompressor *compressor) {
-        if (host->compressor.context != nullptr && host->compressor.destroy)
+    void _ENetHost::compress(const ENetCompressor *compressor)
+    {
+        if (this->compressor.context != nullptr && this->compressor.destroy)
         {
-            (*host->compressor.destroy)(host->compressor.context);
+            (*this->compressor.destroy)(this->compressor.context);
         }
 
         if (compressor) {
-            host->compressor = *compressor;
+            this->compressor = *compressor;
         } else {
-            host->compressor.context = nullptr;
+            this->compressor.context = nullptr;
         }
     }
 
@@ -4836,14 +4863,15 @@
      *  @param host host to limit
      *  @param channelLimit the maximum number of channels allowed; if 0, then this is equivalent to ENET_PROTOCOL_MAXIMUM_CHANNEL_COUNT
      */
-    void enet_host_channel_limit(ENetHost *host, size_t channelLimit) {
+    void _ENetHost::channel_limit(size_t channelLimit)
+    {
         if (!channelLimit || channelLimit > ENET_PROTOCOL_MAXIMUM_CHANNEL_COUNT) {
             channelLimit = ENET_PROTOCOL_MAXIMUM_CHANNEL_COUNT;
         } else if (channelLimit < ENET_PROTOCOL_MINIMUM_CHANNEL_COUNT) {
             channelLimit = ENET_PROTOCOL_MINIMUM_CHANNEL_COUNT;
         }
 
-        host->channelLimit = channelLimit;
+        this->channelLimit = channelLimit;
     }
 
     /** Adjusts the bandwidth limits of a host.
@@ -4853,43 +4881,47 @@
      *  @remarks the incoming and outgoing bandwidth parameters are identical in function to those
      *  specified in enet_host_create().
      */
-    void enet_host_bandwidth_limit(ENetHost *host, enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth) {
-        host->incomingBandwidth = incomingBandwidth;
-        host->outgoingBandwidth = outgoingBandwidth;
-        host->recalculateBandwidthLimits = 1;
+    void _ENetHost::bandwidth_limit(enet_uint32 incomingBandwidth, enet_uint32 outgoingBandwidth)
+    {
+        this->incomingBandwidth          = incomingBandwidth;
+        this->outgoingBandwidth          = outgoingBandwidth;
+        this->recalculateBandwidthLimits = 1;
     }
 
-    void enet_host_bandwidth_throttle(ENetHost *host) {
+    void _ENetHost::bandwidth_throttle()
+    {
         enet_uint32 timeCurrent       = enet_time_get();
-        enet_uint32 elapsedTime       = timeCurrent - host->bandwidthThrottleEpoch;
-        enet_uint32 peersRemaining    = (enet_uint32) host->connectedPeers;
+        enet_uint32 elapsedTime       = timeCurrent - this->bandwidthThrottleEpoch;
+        enet_uint32 peersRemaining    = (enet_uint32)this->connectedPeers;
         enet_uint32 dataTotal         = ~0;
         enet_uint32 bandwidth         = ~0;
         enet_uint32 throttle          = 0;
         enet_uint32 bandwidthLimit    = 0;
 
-        int needsAdjustment = host->bandwidthLimitedPeers > 0 ? 1 : 0;
+        int          needsAdjustment = this->bandwidthLimitedPeers > 0 ? 1 : 0;
         ENetProtocol command;
 
         if (elapsedTime < ENET_HOST_BANDWIDTH_THROTTLE_INTERVAL) {
             return;
         }
 
-        if (host->outgoingBandwidth == 0 && host->incomingBandwidth == 0) {
+        if (this->outgoingBandwidth == 0 && this->incomingBandwidth == 0)
+        {
             return;
         }
 
-        host->bandwidthThrottleEpoch = timeCurrent;
+        this->bandwidthThrottleEpoch = timeCurrent;
 
         if (peersRemaining == 0) {
             return;
         }
 
-        if (host->outgoingBandwidth != 0) {
+        if (this->outgoingBandwidth != 0)
+        {
             dataTotal = 0;
-            bandwidth = (host->outgoingBandwidth * elapsedTime) / 1000;
+            bandwidth = (this->outgoingBandwidth * elapsedTime) / 1000;
 
-            for (auto &peer : host->peers)
+            for (auto &peer : this->peers)
             {
                 if (peer.state != ENET_PEER_STATE_CONNECTED &&
                     peer.state != ENET_PEER_STATE_DISCONNECT_LATER)
@@ -4910,7 +4942,7 @@
                 throttle = (bandwidth * ENET_PEER_PACKET_THROTTLE_SCALE) / dataTotal;
             }
 
-            for (auto &peer : host->peers)
+            for (auto &peer : this->peers)
             {
                 enet_uint32 peerBandwidth;
 
@@ -4961,7 +4993,7 @@
                 throttle = (bandwidth * ENET_PEER_PACKET_THROTTLE_SCALE) / dataTotal;
             }
 
-            for (auto &peer : host->peers)
+            for (auto &peer : this->peers)
             {
                 if ((peer.state != ENET_PEER_STATE_CONNECTED &&
                      peer.state != ENET_PEER_STATE_DISCONNECT_LATER) ||
@@ -4982,11 +5014,12 @@
             }
         }
 
-        if (host->recalculateBandwidthLimits) {
-            host->recalculateBandwidthLimits = 0;
+        if (this->recalculateBandwidthLimits)
+        {
+            this->recalculateBandwidthLimits = 0;
 
-            peersRemaining  = (enet_uint32) host->connectedPeers;
-            bandwidth       = host->incomingBandwidth;
+            peersRemaining  = (enet_uint32)this->connectedPeers;
+            bandwidth       = this->incomingBandwidth;
             needsAdjustment = 1;
 
             if (bandwidth == 0) {
@@ -4996,7 +5029,7 @@
                     needsAdjustment = 0;
                     bandwidthLimit  = bandwidth / peersRemaining;
 
-                    for (auto &peer : host->peers)
+                    for (auto &peer : this->peers)
                     {
                         if ((peer.state != ENET_PEER_STATE_CONNECTED &&
                              peer.state != ENET_PEER_STATE_DISCONNECT_LATER) ||
@@ -5019,7 +5052,7 @@
                 }
             }
 
-            for (auto &peer : host->peers)
+            for (auto &peer : this->peers)
             {
                 if (peer.state != ENET_PEER_STATE_CONNECTED &&
                     peer.state != ENET_PEER_STATE_DISCONNECT_LATER)
@@ -5029,7 +5062,8 @@
 
                 command.header.command   = ENET_PROTOCOL_COMMAND_BANDWIDTH_LIMIT | ENET_PROTOCOL_COMMAND_FLAG_ACKNOWLEDGE;
                 command.header.channelID = 0xFF;
-                command.bandwidthLimit.outgoingBandwidth = ENET_HOST_TO_NET_32(host->outgoingBandwidth);
+                command.bandwidthLimit.outgoingBandwidth =
+                    ENET_HOST_TO_NET_32(this->outgoingBandwidth);
 
                 if (peer.incomingBandwidthThrottleEpoch == timeCurrent)
                 {
@@ -5190,7 +5224,7 @@
 
     void enet_deinitialize(void) {}
 
-    enet_uint64 enet_host_random_seed(void) { return (enet_uint64)time(nullptr); }
+    enet_uint64 _ENetHost::random_seed(void) { return static_cast<enet_uint64>(time(nullptr)); }
 
     int enet_address_set_host_ip(ENetAddress *address, const char *name) {
         if (!inet_pton(AF_INET6, name, &address->host)) {

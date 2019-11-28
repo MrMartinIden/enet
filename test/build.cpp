@@ -11,7 +11,8 @@ typedef struct {
 
 void host_server(ENetHost *server) {
     ENetEvent event;
-    while (enet_host_service(server, &event, 2) > 0) {
+    while (server->service(&event, 2) > 0)
+    {
         switch (event.type) {
             case ENET_EVENT_TYPE_CONNECT:
                 printf("A new client connected from ::1:%u.\n", event.peer->address.port);
@@ -75,7 +76,7 @@ int main() {
     for (i = 0; i < MAX_CLIENTS; ++i) {
         enet_address_set_host(&address, "127.0.0.1");
         clients[i].host = new ENetHost(nullptr, 1, 2, 0, 0);
-        clients[i].peer = enet_host_connect(clients[i].host, &address, 2, 0);
+        clients[i].peer = clients[i].host->connect(&address, 2, 0);
         if (clients[i].peer == nullptr)
         {
             printf("coundlnt connect\n");
@@ -91,7 +92,7 @@ int main() {
 
         ENetEvent event;
         for (i = 0; i < MAX_CLIENTS; ++i) {
-            enet_host_service(clients[i].host, &event, 0);
+            clients[i].host->service(&event, 0);
         }
 
         counter--;
