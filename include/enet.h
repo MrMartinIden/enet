@@ -37,6 +37,7 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <list>
 
 #include <stdlib.h>
 #include <stdbool.h>
@@ -872,7 +873,7 @@
         int                   recalculateBandwidthLimits = 0;
         size_t                channelLimit; /**< maximum number of channels allowed for connected peers */
         enet_uint32           serviceTime;
-        ENetList              dispatchQueue;
+        std::list<ENetPeer *> dispatchQueue;
         size_t                packetSize;
         enet_uint16           headerFlags;
         ENetProtocol          commands[ENET_PROTOCOL_MAXIMUM_PACKET_COMMANDS];
@@ -1526,14 +1527,16 @@
         enet_protocol_change_state(host, peer, state);
 
         if (!peer->needsDispatch) {
-            enet_list_insert(enet_list_end(&host->dispatchQueue), &peer->dispatchList);
+            host->dispatchQueue.insert(host->dispatchQueue.end(), peer);
             peer->needsDispatch = 1;
         }
     }
 
     static int enet_protocol_dispatch_incoming_commands(ENetHost *host, ENetEvent *event) {
-        while (!enet_list_empty(&host->dispatchQueue)) {
-            ENetPeer *peer = (ENetPeer *) enet_list_remove(enet_list_begin(&host->dispatchQueue));
+        while (!host->dispatchQueue.empty())
+        {
+            ENetPeer *peer = host->dispatchQueue.front();
+            host->dispatchQueue.pop_front();
             peer->needsDispatch = 0;
 
             switch (peer->state) {
@@ -1574,7 +1577,7 @@
 
                     if (!enet_list_empty(&peer->dispatchedCommands)) {
                         peer->needsDispatch = 1;
-                        enet_list_insert(enet_list_end(&host->dispatchQueue), &peer->dispatchList);
+                        host->dispatchQueue.insert(host->dispatchQueue.end(), peer);
                     }
 
                     return 1;
@@ -4216,8 +4219,8 @@
 
                     if (!this->needsDispatch)
                     {
-                        enet_list_insert(enet_list_end(&this->host->dispatchQueue),
-                                         &this->dispatchList);
+                        host->dispatchQueue.insert(this->host->dispatchQueue.end(), this);
+
                         this->needsDispatch = 1;
                     }
 
@@ -4245,8 +4248,8 @@
 
                     if (!this->needsDispatch)
                     {
-                        enet_list_insert(enet_list_end(&this->host->dispatchQueue),
-                                         &this->dispatchList);
+                        host->dispatchQueue.insert(this->host->dispatchQueue.end(), this);
+
                         this->needsDispatch = 1;
                     }
                 }
@@ -4261,7 +4264,7 @@
 
             if (!this->needsDispatch)
             {
-                enet_list_insert(enet_list_end(&this->host->dispatchQueue), &this->dispatchList);
+                host->dispatchQueue.insert(this->host->dispatchQueue.end(), this);
                 this->needsDispatch = 1;
             }
 
@@ -4303,7 +4306,7 @@
 
         if (!this->needsDispatch)
         {
-            enet_list_insert(enet_list_end(&this->host->dispatchQueue), &this->dispatchList);
+            host->dispatchQueue.insert(this->host->dispatchQueue.end(), this);
             this->needsDispatch = 1;
         }
 
@@ -4592,7 +4595,7 @@
         this->receivedAddress.port       = 0;
         this->compressor                 = {nullptr, nullptr, nullptr, nullptr};
 
-        enet_list_clear(&dispatchQueue);
+        dispatchQueue.clear();
 
         for (auto &currentPeer : this->peers)
         {
