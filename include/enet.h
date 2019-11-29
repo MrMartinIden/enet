@@ -530,10 +530,10 @@
         void *                 userData;       /**< application private data, may be freely modified */
     } ENetPacket;
 
-    typedef struct _ENetAcknowledgement {
-        ENetListNode acknowledgementList;
-        enet_uint32  sentTime;
+    typedef struct _ENetAcknowledgement
+    {
         ENetProtocol command;
+        enet_uint32  sentTime;
     } ENetAcknowledgement;
 
     typedef struct _ENetOutgoingCommand {
@@ -640,7 +640,7 @@
                                                     enet_uint16);
         ENetIncomingCommand *queue_incoming_command(const ENetProtocol *, const void *, size_t,
                                                     enet_uint32, enet_uint32);
-        ENetAcknowledgement *queue_acknowledgement(const ENetProtocol *, enet_uint16);
+        void                 queue_acknowledgement(const ENetProtocol *, enet_uint16);
         void                 dispatch_incoming_unreliable_commands(ENetChannel *);
         void                 dispatch_incoming_reliable_commands(ENetChannel *);
         void                 on_connect();
@@ -712,7 +712,7 @@
         enet_uint32       windowSize;
         enet_uint32       reliableDataInTransit;
         enet_uint16       outgoingReliableSequenceNumber;
-        ENetList          acknowledgements;
+        std::list<ENetAcknowledgement> acknowledgements;
         ENetList          sentReliableCommands;
         ENetList          sentUnreliableCommands;
         ENetList          outgoingReliableCommands;
@@ -2792,12 +2792,10 @@
         ENetProtocol *command = &host->commands[host->commandCount];
         ENetBuffer *buffer    = &host->buffers[host->bufferCount];
         ENetAcknowledgement *acknowledgement;
-        ENetListIterator currentAcknowledgement;
-        enet_uint16 reliableSequenceNumber;
+        enet_uint16          reliableSequenceNumber;
 
-        currentAcknowledgement = enet_list_begin(&peer->acknowledgements);
-
-        while (currentAcknowledgement != enet_list_end(&peer->acknowledgements)) {
+        for (auto acknowledgement : peer->acknowledgements)
+        {
             if (command >= &host->commands[sizeof(host->commands) / sizeof(ENetProtocol)] ||
                 buffer >= &host->buffers[sizeof(host->buffers) / sizeof(ENetBuffer)] ||
                 peer->mtu - host->packetSize < sizeof(ENetProtocolAcknowledge)
@@ -2805,27 +2803,24 @@
                 break;
             }
 
-            acknowledgement = (ENetAcknowledgement *) currentAcknowledgement;
-            currentAcknowledgement = enet_list_next(currentAcknowledgement);
-
             buffer->data       = command;
             buffer->dataLength = sizeof(ENetProtocolAcknowledge);
             host->packetSize += buffer->dataLength;
 
-            reliableSequenceNumber = ENET_HOST_TO_NET_16(acknowledgement->command.header.reliableSequenceNumber);
+            reliableSequenceNumber =
+                ENET_HOST_TO_NET_16(acknowledgement.command.header.reliableSequenceNumber);
 
             command->header.command   = ENET_PROTOCOL_COMMAND_ACKNOWLEDGE;
-            command->header.channelID = acknowledgement->command.header.channelID;
+            command->header.channelID              = acknowledgement.command.header.channelID;
             command->header.reliableSequenceNumber = reliableSequenceNumber;
             command->acknowledge.receivedReliableSequenceNumber = reliableSequenceNumber;
-            command->acknowledge.receivedSentTime = ENET_HOST_TO_NET_16(acknowledgement->sentTime);
+            command->acknowledge.receivedSentTime = ENET_HOST_TO_NET_16(acknowledgement.sentTime);
 
-            if ((acknowledgement->command.header.command & ENET_PROTOCOL_COMMAND_MASK) == ENET_PROTOCOL_COMMAND_DISCONNECT) {
+            if ((acknowledgement.command.header.command & ENET_PROTOCOL_COMMAND_MASK) ==
+                ENET_PROTOCOL_COMMAND_DISCONNECT)
+            {
                 enet_protocol_dispatch_state(host, peer, ENET_PEER_STATE_ZOMBIE);
             }
-
-            enet_list_remove(&acknowledgement->acknowledgementList);
-            enet_free(acknowledgement);
 
             ++command;
             ++buffer;
@@ -3128,7 +3123,7 @@
                 host->bufferCount  = 1;
                 host->packetSize   = sizeof(ENetProtocolHeader);
 
-                if (!enet_list_empty(&currentPeer.acknowledgements))
+                if (!currentPeer.acknowledgements.empty())
                 {
                     enet_protocol_send_acknowledgements(host, &currentPeer);
                 }
@@ -3791,9 +3786,9 @@
             this->needsDispatch = 0;
         }
 
-        while (!enet_list_empty(&this->acknowledgements))
+        while (!this->acknowledgements.empty())
         {
-            enet_free(enet_list_remove(enet_list_begin(&this->acknowledgements)));
+            this->acknowledgements.pop_front();
         }
 
         enet_peer_reset_outgoing_commands(&this->sentReliableCommands);
@@ -4072,11 +4067,8 @@
         }
     }
 
-    ENetAcknowledgement *ENetPeer::queue_acknowledgement(const ENetProtocol *command,
-                                                         enet_uint16         sentTime)
+    void ENetPeer::queue_acknowledgement(const ENetProtocol *command, enet_uint16 sentTime)
     {
-        ENetAcknowledgement *acknowledgement;
-
         if (command->header.channelID < this->channelCount)
         {
             ENetChannel *channel = &this->channels[command->header.channelID];
@@ -4086,25 +4078,13 @@
             if (command->header.reliableSequenceNumber < channel->incomingReliableSequenceNumber) {
                 reliableWindow += ENET_PEER_RELIABLE_WINDOWS;
             }
-
-            if (reliableWindow >= currentWindow + ENET_PEER_FREE_RELIABLE_WINDOWS - 1 && reliableWindow <= currentWindow + ENET_PEER_FREE_RELIABLE_WINDOWS) {
-                return nullptr;
-            }
-        }
-
-        acknowledgement = (ENetAcknowledgement *) enet_malloc(sizeof(ENetAcknowledgement));
-        if (acknowledgement == nullptr)
-        {
-            return nullptr;
         }
 
         this->outgoingDataTotal += sizeof(ENetProtocolAcknowledge);
 
-        acknowledgement->sentTime = sentTime;
-        acknowledgement->command  = *command;
+        ENetAcknowledgement acknowledgement = {*command, sentTime};
 
-        enet_list_insert(enet_list_end(&this->acknowledgements), acknowledgement);
-        return acknowledgement;
+        this->acknowledgements.insert(this->acknowledgements.end(), acknowledgement);
     }
 
     void ENetPeer::setup_outgoing_command(ENetOutgoingCommand *outgoingCommand)
@@ -4604,7 +4584,7 @@
             currentPeer.outgoingSessionID = currentPeer.incomingSessionID = 0xFF;
             currentPeer.data                                              = nullptr;
 
-            enet_list_clear(&currentPeer.acknowledgements);
+            currentPeer.acknowledgements.clear();
             enet_list_clear(&currentPeer.sentReliableCommands);
             enet_list_clear(&currentPeer.sentUnreliableCommands);
             enet_list_clear(&currentPeer.outgoingReliableCommands);
