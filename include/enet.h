@@ -2620,7 +2620,17 @@
 
         currentData = host->receivedData + headerSize;
 
-        while (currentData < &host->receivedData[host->receivedDataLength]) {
+        auto commandError = [](ENetEvent *event) -> uint8_t {
+            if (event != nullptr && event->type != ENET_EVENT_TYPE_NONE)
+            {
+                return 1;
+            }
+
+            return 0;
+        };
+
+        while (currentData < &host->receivedData[host->receivedDataLength])
+        {
             enet_uint8 commandNumber;
             size_t commandSize;
 
@@ -2653,84 +2663,84 @@
             switch (commandNumber) {
                 case ENET_PROTOCOL_COMMAND_ACKNOWLEDGE:
                     if (enet_protocol_handle_acknowledge(host, event, peer, command)) {
-                        goto commandError;
+                        return commandError(event);
                     }
                     break;
 
                 case ENET_PROTOCOL_COMMAND_CONNECT:
                     if (peer != nullptr)
                     {
-                        goto commandError;
+                        return commandError(event);
                     }
                     peer = enet_protocol_handle_connect(host, header, command);
                     if (peer == nullptr)
                     {
-                        goto commandError;
+                        return commandError(event);
                     }
                     break;
 
                 case ENET_PROTOCOL_COMMAND_VERIFY_CONNECT:
                     if (enet_protocol_handle_verify_connect(host, event, peer, command)) {
-                        goto commandError;
+                        return commandError(event);
                     }
                     break;
 
                 case ENET_PROTOCOL_COMMAND_DISCONNECT:
                     if (enet_protocol_handle_disconnect(host, peer, command)) {
-                        goto commandError;
+                        return commandError(event);
                     }
                     break;
 
                 case ENET_PROTOCOL_COMMAND_PING:
                     if (enet_protocol_handle_ping(host, peer, command)) {
-                        goto commandError;
+                        return commandError(event);
                     }
                     break;
 
                 case ENET_PROTOCOL_COMMAND_SEND_RELIABLE:
                     if (enet_protocol_handle_send_reliable(host, peer, command, &currentData)) {
-                        goto commandError;
+                        return commandError(event);
                     }
                     break;
 
                 case ENET_PROTOCOL_COMMAND_SEND_UNRELIABLE:
                     if (enet_protocol_handle_send_unreliable(host, peer, command, &currentData)) {
-                        goto commandError;
+                        return commandError(event);
                     }
                     break;
 
                 case ENET_PROTOCOL_COMMAND_SEND_UNSEQUENCED:
                     if (enet_protocol_handle_send_unsequenced(host, peer, command, &currentData)) {
-                        goto commandError;
+                        return commandError(event);
                     }
                     break;
 
                 case ENET_PROTOCOL_COMMAND_SEND_FRAGMENT:
                     if (enet_protocol_handle_send_fragment(host, peer, command, &currentData)) {
-                        goto commandError;
+                        return commandError(event);
                     }
                     break;
 
                 case ENET_PROTOCOL_COMMAND_BANDWIDTH_LIMIT:
                     if (enet_protocol_handle_bandwidth_limit(host, peer, command)) {
-                        goto commandError;
+                        return commandError(event);
                     }
                     break;
 
                 case ENET_PROTOCOL_COMMAND_THROTTLE_CONFIGURE:
                     if (enet_protocol_handle_throttle_configure(host, peer, command)) {
-                        goto commandError;
+                        return commandError(event);
                     }
                     break;
 
                 case ENET_PROTOCOL_COMMAND_SEND_UNRELIABLE_FRAGMENT:
                     if (enet_protocol_handle_send_unreliable_fragment(host, peer, command, &currentData)) {
-                        goto commandError;
+                        return commandError(event);
                     }
                     break;
 
                 default:
-                    goto commandError;
+                    return commandError(event);
             }
 
             if (peer != nullptr &&
@@ -2767,13 +2777,8 @@
             }
         }
 
-    commandError:
-        if (event != nullptr && event->type != ENET_EVENT_TYPE_NONE)
-        {
-            return 1;
-        }
+        return commandError(event);
 
-        return 0;
     } /* enet_protocol_handle_incoming_commands */
 
     static int enet_protocol_receive_incoming_commands(ENetHost *host, ENetEvent *event) {
@@ -4384,9 +4389,35 @@
         ENetListIterator currentCommand;
         ENetPacket *         packet = nullptr;
 
+        auto destroy_if = [](ENetPacket *packet) {
+            if (packet != nullptr && packet->referenceCount == 0)
+            {
+                enet_packet_destroy(packet);
+            }
+        };
+
+        auto notifyError = [destroy_if](ENetPacket *packet) -> ENetIncomingCommand * {
+            destroy_if(packet);
+
+            return nullptr;
+        };
+
+        auto discardCommand = [destroy_if,
+                               notifyError](ENetPacket *packet,
+                                            enet_uint32 fragmentCount) -> ENetIncomingCommand * {
+            if (fragmentCount > 0)
+            {
+                return notifyError(packet);
+            }
+
+            destroy_if(packet);
+
+            return &dummyCommand;
+        };
+
         if (this->state == ENetPeerState::DISCONNECT_LATER)
         {
-            goto discardCommand;
+            return discardCommand(packet, fragmentCount);
         }
 
         if ((command->header.command & ENET_PROTOCOL_COMMAND_MASK) != ENET_PROTOCOL_COMMAND_SEND_UNSEQUENCED) {
@@ -4399,7 +4430,7 @@
             }
 
             if (reliableWindow < currentWindow || reliableWindow >= currentWindow + ENET_PEER_FREE_RELIABLE_WINDOWS - 1) {
-                goto discardCommand;
+                return discardCommand(packet, fragmentCount);
             }
         }
 
@@ -4407,7 +4438,7 @@
             case ENET_PROTOCOL_COMMAND_SEND_FRAGMENT:
             case ENET_PROTOCOL_COMMAND_SEND_RELIABLE:
                 if (reliableSequenceNumber == channel->incomingReliableSequenceNumber) {
-                    goto discardCommand;
+                    return discardCommand(packet, fragmentCount);
                 }
 
                 for (currentCommand = enet_list_previous(enet_list_end(&channel->incomingReliableCommands));
@@ -4429,7 +4460,7 @@
                             break;
                         }
 
-                        goto discardCommand;
+                        return discardCommand(packet, fragmentCount);
                     }
                 }
                 break;
@@ -4439,7 +4470,7 @@
                 unreliableSequenceNumber = ENET_NET_TO_HOST_16(command->sendUnreliable.unreliableSequenceNumber);
 
                 if (reliableSequenceNumber == channel->incomingReliableSequenceNumber && unreliableSequenceNumber <= channel->incomingUnreliableSequenceNumber) {
-                    goto discardCommand;
+                    return discardCommand(packet, fragmentCount);
                 }
 
                 for (currentCommand = enet_list_previous(enet_list_end(&channel->incomingUnreliableCommands));
@@ -4473,7 +4504,7 @@
                             break;
                         }
 
-                        goto discardCommand;
+                        return discardCommand(packet, fragmentCount);
                     }
                 }
                 break;
@@ -4483,24 +4514,24 @@
                 break;
 
             default:
-                goto discardCommand;
+                return discardCommand(packet, fragmentCount);
         }
 
         if (this->totalWaitingData >= this->host->maximumWaitingData)
         {
-            goto notifyError;
+            return notifyError(packet);
         }
 
         packet = enet_packet_create(data, dataLength, flags);
         if (packet == nullptr)
         {
-            goto notifyError;
+            return notifyError(packet);
         }
 
         incomingCommand = (ENetIncomingCommand *) enet_malloc(sizeof(ENetIncomingCommand));
         if (incomingCommand == nullptr)
         {
-            goto notifyError;
+            return notifyError(packet);
         }
 
         incomingCommand->reliableSequenceNumber     = command->header.reliableSequenceNumber;
@@ -4520,7 +4551,7 @@
             {
                 enet_free(incomingCommand);
 
-                goto notifyError;
+                return notifyError(packet);
             }
 
             memset(incomingCommand->fragments, 0, (fragmentCount + 31) / 32 * sizeof(enet_uint32));
@@ -4547,25 +4578,6 @@
 
         return incomingCommand;
 
-    discardCommand:
-        if (fragmentCount > 0) {
-            goto notifyError;
-        }
-
-        if (packet != nullptr && packet->referenceCount == 0)
-        {
-            enet_packet_destroy(packet);
-        }
-
-        return &dummyCommand;
-
-    notifyError:
-        if (packet != nullptr && packet->referenceCount == 0)
-        {
-            enet_packet_destroy(packet);
-        }
-
-        return nullptr;
     } /* enet_peer_queue_incoming_command */
 
 // =======================================================================//
