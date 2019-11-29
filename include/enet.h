@@ -32,8 +32,7 @@
  * SOFTWARE.
  *
  */
-#ifndef ENET_INCLUDE_H
-#define ENET_INCLUDE_H
+#pragma once
 
 #include <algorithm>
 #include <cassert>
@@ -441,11 +440,6 @@
 // ! General ENet structs/enums
 // !
 // =======================================================================//
-
-    typedef enum _ENetSocketType {
-        ENET_SOCKET_TYPE_STREAM   = 1,
-        ENET_SOCKET_TYPE_DATAGRAM = 2
-    } ENetSocketType;
 
     typedef enum _ENetSocketWait {
         ENET_SOCKET_WAIT_NONE      = 0,
@@ -941,7 +935,7 @@
     ENET_API enet_uint32 enet_time_get(void);
 
     /** ENet socket functions */
-    ENET_API ENetSocket enet_socket_create(ENetSocketType);
+    ENET_API ENetSocket enet_socket_create();
     ENET_API int        enet_socket_bind(ENetSocket, const ENetAddress *);
     ENET_API int        enet_socket_get_address(ENetSocket, ENetAddress *);
     ENET_API int        enet_socket_listen(ENetSocket, int);
@@ -4573,7 +4567,7 @@
 
         this->peers.resize(peerCount);
 
-        this->socket = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+        this->socket = enet_socket_create();
         if (this->socket != ENET_SOCKET_NULL)
         {
             enet_socket_set_option(this->socket, ENET_SOCKOPT_IPV6_V6ONLY, 0);
@@ -5337,9 +5331,7 @@
         return listen(socket, backlog < 0 ? SOMAXCONN : backlog);
     }
 
-    ENetSocket enet_socket_create(ENetSocketType type) {
-        return socket(PF_INET6, type == ENET_SOCKET_TYPE_DATAGRAM ? SOCK_DGRAM : SOCK_STREAM, 0);
-    }
+    ENetSocket enet_socket_create() { return socket(PF_INET6, SOCK_DGRAM, 0); }
 
     int enet_socket_set_option(ENetSocket socket, ENetSocketOption option, int value) {
         int result = -1;
@@ -5929,9 +5921,7 @@
         return listen(socket, backlog < 0 ? SOMAXCONN : backlog) == SOCKET_ERROR ? -1 : 0;
     }
 
-    ENetSocket enet_socket_create(ENetSocketType type) {
-        return socket(PF_INET6, type == ENET_SOCKET_TYPE_DATAGRAM ? SOCK_DGRAM : SOCK_STREAM, 0);
-    }
+    ENetSocket enet_socket_create(ENetSocketType type) { return socket(PF_INET6, SOCK_DGRAM, 0); }
 
     int enet_socket_set_option(ENetSocket socket, ENetSocketOption option, int value) {
         int result = SOCKET_ERROR;
@@ -6159,4 +6149,3 @@
 #endif // _WIN32
 
 #endif // ENET_IMPLEMENTATION
-#endif // ENET_INCLUDE_H
