@@ -13,35 +13,35 @@ void host_server(ENetHost *server) {
     ENetEvent event;
     while (server->service(&event, 2) > 0)
     {
-        switch (event.type) {
-            case ENET_EVENT_TYPE_CONNECT:
-                printf("A new client connected from ::1:%u.\n", event.peer->address.port);
-                /* Store any relevant client information here. */
-                event.peer->data = (void *)"Client information";
-                break;
-            case ENET_EVENT_TYPE_RECEIVE:
-                printf("A packet of length %zu containing %s was received from %s on channel %u.\n",
-                        event.packet->dataLength,
-                        event.packet->data,
-                        (char *)event.peer->data,
-                        event.channelID);
+        switch (event.type)
+        {
+        case ENetEventType::CONNECT:
+            printf("A new client connected from ::1:%u.\n", event.peer->address.port);
+            /* Store any relevant client information here. */
+            event.peer->data = (void *)"Client information";
+            break;
+        case ENetEventType::RECEIVE:
+            printf("A packet of length %zu containing %s was received from %s on channel %u.\n",
+                   event.packet->dataLength, event.packet->data, (char *)event.peer->data,
+                   event.channelID);
 
-                /* Clean up the packet now that we're done using it. */
-                enet_packet_destroy (event.packet);
-                break;
+            /* Clean up the packet now that we're done using it. */
+            enet_packet_destroy(event.packet);
+            break;
 
-            case ENET_EVENT_TYPE_DISCONNECT:
-                printf ("%s disconnected.\n", (char *)event.peer->data);
-                /* Reset the peer's client information. */
-                event.peer->data = nullptr;
-                break;
+        case ENetEventType::DISCONNECT:
+            printf("%s disconnected.\n", (char *)event.peer->data);
+            /* Reset the peer's client information. */
+            event.peer->data = nullptr;
+            break;
 
-            case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
-                printf ("%s timeout.\n", (char *)event.peer->data);
-                event.peer->data = nullptr;
-                break;
+        case ENetEventType::DISCONNECT_TIMEOUT:
+            printf("%s timeout.\n", (char *)event.peer->data);
+            event.peer->data = nullptr;
+            break;
 
-            case ENET_EVENT_TYPE_NONE: break;
+        case ENetEventType::NONE:
+            break;
         }
     }
 }

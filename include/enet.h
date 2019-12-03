@@ -749,15 +749,15 @@
     /**
      * An ENet event type, as specified in @ref ENetEvent.
      */
-    typedef enum _ENetEventType
+    enum class ENetEventType : uint8_t
     {
         /** no event occurred within the specified time limit */
-        ENET_EVENT_TYPE_NONE = 0,
+        NONE = 0,
 
         /** a connection request initiated by enet_host_connect has completed.
          * The peer field contains the peer which successfully connected.
          */
-        ENET_EVENT_TYPE_CONNECT = 1,
+        CONNECT = 1,
 
         /** a peer has disconnected.  This event is generated on a successful
          * completion of a disconnect initiated by enet_peer_disconnect, if
@@ -765,7 +765,7 @@
          * which disconnected. The data field contains user supplied data
          * describing the disconnection, or 0, if none is available.
          */
-        ENET_EVENT_TYPE_DISCONNECT = 2,
+        DISCONNECT = 2,
 
         /** a packet has been received from a peer.  The peer field specifies the
          * peer which sent the packet.  The channelID field specifies the channel
@@ -773,28 +773,28 @@
          * the packet that was received; this packet must be destroyed with
          * enet_packet_destroy after use.
          */
-        ENET_EVENT_TYPE_RECEIVE = 3,
+        RECEIVE = 3,
 
         /** a peer is disconnected because the host didn't receive the acknowledgment
          * packet within certain maximum time out. The reason could be because of bad
          * network connection or  host crashed.
          */
-        ENET_EVENT_TYPE_DISCONNECT_TIMEOUT = 4,
-    } ENetEventType;
+        DISCONNECT_TIMEOUT = 4,
+    };
 
     /**
      * An ENet event as returned by enet_host_service().
      *
      * @sa enet_host_service
      */
-    typedef struct _ENetEvent
+    struct ENetEvent
     {
         ENetEventType type;    /**< type of the event */
         ENetPeer *    peer;    /**< peer that generated a connect, disconnect or receive event */
         enet_uint8  channelID; /**< channel on the peer that generated the event, if appropriate */
         enet_uint32 data;      /**< data associated with the event, if appropriate */
         ENetPacket *packet;    /**< packet associated with the event, if appropriate */
-    } ENetEvent;
+    };
 
     struct ENetSocket
     {
@@ -1555,7 +1555,7 @@
             case ENetPeerState::CONNECTION_SUCCEEDED:
                 enet_protocol_change_state(host, peer, ENetPeerState::CONNECTED);
 
-                event.type = ENET_EVENT_TYPE_CONNECT;
+                event.type = ENetEventType::CONNECT;
                 event.peer = peer;
                 event.data = peer->eventData;
 
@@ -1564,7 +1564,7 @@
             case ENetPeerState::ZOMBIE:
                 host->recalculateBandwidthLimits = 1;
 
-                event.type = ENET_EVENT_TYPE_DISCONNECT;
+                event.type = ENetEventType::DISCONNECT;
                 event.peer = peer;
                 event.data = peer->eventData;
 
@@ -1584,7 +1584,7 @@
                     continue;
                 }
 
-                event.type = ENET_EVENT_TYPE_RECEIVE;
+                event.type = ENetEventType::RECEIVE;
                 event.peer = peer;
 
                 if (!enet_list_empty(&peer->dispatchedCommands))
@@ -1615,7 +1615,7 @@
             peer->totalPacketsSent  = 0;
             peer->totalPacketsLost  = 0;
 
-            event->type = ENET_EVENT_TYPE_CONNECT;
+            event->type = ENetEventType::CONNECT;
             event->peer = peer;
             event->data = peer->eventData;
         }
@@ -1641,7 +1641,7 @@
         }
         else if (event != nullptr)
         {
-            event->type = ENET_EVENT_TYPE_DISCONNECT;
+            event->type = ENetEventType::DISCONNECT;
             event->peer = peer;
             event->data = 0;
 
@@ -1667,7 +1667,7 @@
         }
         else if (event != nullptr)
         {
-            event->type = ENET_EVENT_TYPE_DISCONNECT_TIMEOUT;
+            event->type = ENetEventType::DISCONNECT_TIMEOUT;
             event->peer = peer;
             event->data = 0;
 
@@ -2628,7 +2628,7 @@
         currentData = host->receivedData + headerSize;
 
         auto commandError = [](ENetEvent *event) -> uint8_t {
-            if (event != nullptr && event->type != ENET_EVENT_TYPE_NONE)
+            if (event != nullptr && event->type != ENetEventType::NONE)
             {
                 return 1;
             }
@@ -2822,7 +2822,7 @@
             {
                 switch (host->intercept(host, (void *)event)) {
                     case 1:
-                        if (event != nullptr && event->type != ENET_EVENT_TYPE_NONE)
+                        if (event != nullptr && event->type != ENetEventType::NONE)
                         {
                             return 1;
                         }
@@ -3199,7 +3199,7 @@
                     ENET_TIME_GREATER_EQUAL(host->serviceTime, currentPeer.nextTimeout) &&
                     enet_protocol_check_timeouts(host, &currentPeer, event) == 1)
                 {
-                    if (event != nullptr && event->type != ENET_EVENT_TYPE_NONE)
+                    if (event != nullptr && event->type != ENetEventType::NONE)
                     {
                         return 1;
                     }
@@ -3362,7 +3362,7 @@
      */
     bool ENetHost::check_events(ENetEvent &event)
     {
-        event.type   = ENET_EVENT_TYPE_NONE;
+        event.type   = ENetEventType::NONE;
         event.peer   = nullptr;
         event.packet = nullptr;
 
@@ -4670,7 +4670,7 @@
      *  @param data user data supplied to the receiving host
      *  @returns a peer representing the foreign host on success, nullptr on failure
      *  @remarks The peer returned will have not completed the connection until enet_host_service()
-     *  notifies of an ENET_EVENT_TYPE_CONNECT event for the peer.
+     *  notifies of an ENetEventType::CONNECT event for the peer.
      */
     ENetPeer *ENetHost::connect(const ENetAddress *address, size_t channelCount, enet_uint32 data)
     {
