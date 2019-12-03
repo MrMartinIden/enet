@@ -170,8 +170,6 @@
     #define ENET_BUFFER_MAXIMUM MSG_MAXIOVLEN
     #endif
 
-    typedef int ENetSocket;
-
     #define ENET_SOCKET_NULL -1
 
     #define ENET_HOST_TO_NET_16(value) (htons(value)) /**< macro that converts host to net byte-order of a 16-bit value */
@@ -798,6 +796,30 @@
         ENetPacket *packet;    /**< packet associated with the event, if appropriate */
     } ENetEvent;
 
+    struct ENetSocket
+    {
+        ENetSocket() = default;
+
+        ~ENetSocket();
+
+        int bind(const ENetAddress *);
+        int get_address(ENetAddress *);
+        int listen(int);
+        int accept(ENetAddress *);
+        int connect(const ENetAddress *);
+        int send(const ENetAddress *, const ENetBuffer *, size_t);
+        int receive(ENetAddress *, ENetBuffer *, size_t);
+        int wait(enet_uint32 &, enet_uint64);
+        int set_option(ENetSocketOption, int);
+        int get_option(ENetSocketOption, int *);
+        int shutdown(ENetSocketShutdown);
+        int select(ENetSocketSet *, ENetSocketSet *, enet_uint32);
+
+        inline bool is_null() { return m_socket == ENET_SOCKET_NULL; }
+
+        int m_socket = socket(PF_INET6, SOCK_DGRAM, 0);
+    };
+
     /** An ENet host for communicating with peers.
      *
      * No fields should be modified unless otherwise stated.
@@ -948,22 +970,6 @@
 
     /** Returns the monotonic time in milliseconds. Its initial value is unspecified unless otherwise set. */
     ENET_API enet_uint32 enet_time_get(void);
-
-    /** ENet socket functions */
-    ENET_API ENetSocket enet_socket_create();
-    ENET_API int        enet_socket_bind(ENetSocket, const ENetAddress *);
-    ENET_API int        enet_socket_get_address(ENetSocket, ENetAddress *);
-    ENET_API int        enet_socket_listen(ENetSocket, int);
-    ENET_API ENetSocket enet_socket_accept(ENetSocket, ENetAddress *);
-    ENET_API int        enet_socket_connect(ENetSocket, const ENetAddress *);
-    ENET_API int        enet_socket_send(ENetSocket, const ENetAddress *, const ENetBuffer *, size_t);
-    ENET_API int        enet_socket_receive(ENetSocket, ENetAddress *, ENetBuffer *, size_t);
-    ENET_API int        enet_socket_wait(ENetSocket, enet_uint32 *, enet_uint64);
-    ENET_API int        enet_socket_set_option(ENetSocket, ENetSocketOption, int);
-    ENET_API int        enet_socket_get_option(ENetSocket, ENetSocketOption, int *);
-    ENET_API int        enet_socket_shutdown(ENetSocket, ENetSocketShutdown);
-    ENET_API void       enet_socket_destroy(ENetSocket);
-    ENET_API int        enet_socketset_select(ENetSocket, ENetSocketSet *, ENetSocketSet *, enet_uint32);
 
     /** Attempts to parse the printable form of the IP address in the parameter hostName
         and sets the host field in the address parameter if successful.
@@ -2792,7 +2798,7 @@
             // buffer.dataLength = sizeof (host->packetData[0]);
             buffer.dataLength = host->mtu;
 
-            receivedLength    = enet_socket_receive(host->socket, &host->receivedAddress, &buffer, 1);
+            receivedLength = host->socket.receive(&host->receivedAddress, &buffer, 1);
 
             if (receivedLength == -2)
                 continue;
@@ -3314,8 +3320,8 @@
                 }
 
                 currentPeer.lastSendTime = host->serviceTime;
-                sentLength = enet_socket_send(host->socket, &currentPeer.address, host->buffers,
-                                              host->bufferCount);
+                sentLength =
+                    host->socket.send(&currentPeer.address, host->buffers, host->bufferCount);
                 enet_protocol_remove_sent_unreliable_commands(&currentPeer);
 
                 if (sentLength < 0) {
@@ -3496,8 +3502,8 @@
                 }
 
                 waitCondition = ENET_SOCKET_WAIT_RECEIVE | ENET_SOCKET_WAIT_INTERRUPT;
-                if (enet_socket_wait(this->socket, &waitCondition,
-                                     ENET_TIME_DIFFERENCE(timeout, this->serviceTime)) != 0)
+                if (this->socket.wait(waitCondition, ENET_TIME_DIFFERENCE(timeout, this->serviceTime)) !=
+                    0)
                 {
                     return -1;
                 }
@@ -4614,33 +4620,26 @@
 
         this->peers.resize(peerCount);
 
-        this->socket = enet_socket_create();
-        if (this->socket != ENET_SOCKET_NULL)
+        if (!this->socket.is_null())
         {
-            enet_socket_set_option(this->socket, ENET_SOCKOPT_IPV6_V6ONLY, 0);
+            this->socket.set_option(ENET_SOCKOPT_IPV6_V6ONLY, 0);
         }
 
-        if (this->socket == ENET_SOCKET_NULL ||
-            (address != nullptr && enet_socket_bind(this->socket, address) < 0))
+        if (this->socket.is_null() || (address != nullptr && this->socket.bind(address) < 0))
         {
-            if (this->socket != ENET_SOCKET_NULL)
-            {
-                enet_socket_destroy(this->socket);
-            }
-
             assert(0);
             this->~ENetHost();
 
             return;
         }
 
-        enet_socket_set_option(this->socket, ENET_SOCKOPT_NONBLOCK, 1);
-        enet_socket_set_option(this->socket, ENET_SOCKOPT_BROADCAST, 1);
-        enet_socket_set_option(this->socket, ENET_SOCKOPT_RCVBUF, ENET_HOST_RECEIVE_BUFFER_SIZE);
-        enet_socket_set_option(this->socket, ENET_SOCKOPT_SNDBUF, ENET_HOST_SEND_BUFFER_SIZE);
-        enet_socket_set_option(this->socket, ENET_SOCKOPT_IPV6_V6ONLY, 0);
+        this->socket.set_option(ENET_SOCKOPT_NONBLOCK, 1);
+        this->socket.set_option(ENET_SOCKOPT_BROADCAST, 1);
+        this->socket.set_option(ENET_SOCKOPT_RCVBUF, ENET_HOST_RECEIVE_BUFFER_SIZE);
+        this->socket.set_option(ENET_SOCKOPT_SNDBUF, ENET_HOST_SEND_BUFFER_SIZE);
+        this->socket.set_option(ENET_SOCKOPT_IPV6_V6ONLY, 0);
 
-        if (address != nullptr && enet_socket_get_address(this->socket, &this->address) < 0)
+        if (address != nullptr && this->socket.get_address(&this->address) < 0)
         {
             this->address = *address;
         }
@@ -4687,8 +4686,6 @@
      */
     ENetHost::~ENetHost()
     {
-        enet_socket_destroy(this->socket);
-
         for (auto &currentPeer : this->peers)
         {
             currentPeer.reset();
@@ -4828,7 +4825,7 @@
         ENetBuffer buffer;
         buffer.data = data;
         buffer.dataLength = dataLength;
-        return enet_socket_send(this->socket, address, &buffer, 1);
+        return this->socket.send(address, &buffer, 1);
     }
 
     /** Sends raw data to specified address with extended arguments. Allows to send only part of data, handy for other programming languages.
@@ -4848,7 +4845,7 @@
         ENetBuffer buffer;
         buffer.data = data + skipBytes;
         buffer.dataLength = bytesToSend;
-        return enet_socket_send(this->socket, address, &buffer, 1);
+        return this->socket.send(address, &buffer, 1);
     }
 
     /** Sets intercept callback for the host.
@@ -5338,7 +5335,8 @@
         return enet_address_get_host_ip(address, name, nameLength);
     } /* enet_address_get_host */
 
-    int enet_socket_bind(ENetSocket socket, const ENetAddress *address) {
+    int ENetSocket::bind(const ENetAddress *address)
+    {
         struct sockaddr_in6 sin;
         memset(&sin, 0, sizeof(struct sockaddr_in6));
         sin.sin6_family = AF_INET6;
@@ -5356,14 +5354,16 @@
             sin.sin6_scope_id   = 0;
         }
 
-        return bind(socket, (struct sockaddr *)&sin, sizeof(struct sockaddr_in6));
+        return ::bind(m_socket, (struct sockaddr *)&sin, sizeof(struct sockaddr_in6));
     }
 
-    int enet_socket_get_address(ENetSocket socket, ENetAddress *address) {
+    int ENetSocket::get_address(ENetAddress *address)
+    {
         struct sockaddr_in6 sin;
         socklen_t sinLength = sizeof(struct sockaddr_in6);
 
-        if (getsockname(socket, (struct sockaddr *) &sin, &sinLength) == -1) {
+        if (getsockname(m_socket, (struct sockaddr *)&sin, &sinLength) == -1)
+        {
             return -1;
         }
 
@@ -5374,41 +5374,45 @@
         return 0;
     }
 
-    int enet_socket_listen(ENetSocket socket, int backlog) {
-        return listen(socket, backlog < 0 ? SOMAXCONN : backlog);
+    int ENetSocket::listen(int backlog)
+    {
+        return ::listen(m_socket, backlog < 0 ? SOMAXCONN : backlog);
     }
 
-    ENetSocket enet_socket_create() { return socket(PF_INET6, SOCK_DGRAM, 0); }
-
-    int enet_socket_set_option(ENetSocket socket, ENetSocketOption option, int value) {
+    int ENetSocket::set_option(ENetSocketOption option, int value)
+    {
         int result = -1;
 
         switch (option) {
             case ENET_SOCKOPT_NONBLOCK:
-                result = fcntl(socket, F_SETFL, (value ? O_NONBLOCK : 0) | (fcntl(socket, F_GETFL) & ~O_NONBLOCK));
+                result = fcntl(m_socket, F_SETFL,
+                               (value ? O_NONBLOCK : 0) | (fcntl(m_socket, F_GETFL) & ~O_NONBLOCK));
                 break;
 
             case ENET_SOCKOPT_BROADCAST:
-                result = setsockopt(socket, SOL_SOCKET, SO_BROADCAST, (char *)&value, sizeof(int));
+                result =
+                    setsockopt(m_socket, SOL_SOCKET, SO_BROADCAST, (char *)&value, sizeof(int));
                 break;
 
             case ENET_SOCKOPT_REUSEADDR:
-                result = setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, (char *)&value, sizeof(int));
+                result =
+                    setsockopt(m_socket, SOL_SOCKET, SO_REUSEADDR, (char *)&value, sizeof(int));
                 break;
 
             case ENET_SOCKOPT_RCVBUF:
-                result = setsockopt(socket, SOL_SOCKET, SO_RCVBUF, (char *)&value, sizeof(int));
+                result = setsockopt(m_socket, SOL_SOCKET, SO_RCVBUF, (char *)&value, sizeof(int));
                 break;
 
             case ENET_SOCKOPT_SNDBUF:
-                result = setsockopt(socket, SOL_SOCKET, SO_SNDBUF, (char *)&value, sizeof(int));
+                result = setsockopt(m_socket, SOL_SOCKET, SO_SNDBUF, (char *)&value, sizeof(int));
                 break;
 
             case ENET_SOCKOPT_RCVTIMEO: {
                 struct timeval timeVal;
                 timeVal.tv_sec  = value / 1000;
                 timeVal.tv_usec = (value % 1000) * 1000;
-                result = setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeVal, sizeof(struct timeval));
+                result          = setsockopt(m_socket, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeVal,
+                                    sizeof(struct timeval));
                 break;
             }
 
@@ -5416,32 +5420,36 @@
                 struct timeval timeVal;
                 timeVal.tv_sec  = value / 1000;
                 timeVal.tv_usec = (value % 1000) * 1000;
-                result = setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeVal, sizeof(struct timeval));
+                result          = setsockopt(m_socket, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeVal,
+                                    sizeof(struct timeval));
                 break;
             }
 
             case ENET_SOCKOPT_NODELAY:
-                result = setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, (char *)&value, sizeof(int));
+                result =
+                    setsockopt(m_socket, IPPROTO_TCP, TCP_NODELAY, (char *)&value, sizeof(int));
                 break;
 
             case ENET_SOCKOPT_IPV6_V6ONLY:
-                result = setsockopt(socket, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&value, sizeof(int));
+                result =
+                    setsockopt(m_socket, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&value, sizeof(int));
                 break;
 
             default:
                 break;
         }
         return result == -1 ? -1 : 0;
-    } /* enet_socket_set_option */
+    } /* set_option */
 
-    int enet_socket_get_option(ENetSocket socket, ENetSocketOption option, int *value) {
+    int ENetSocket::get_option(ENetSocketOption option, int *value)
+    {
         int result = -1;
         socklen_t len;
 
         switch (option) {
             case ENET_SOCKOPT_ERROR:
                 len    = sizeof(int);
-                result = getsockopt(socket, SOL_SOCKET, SO_ERROR, value, &len);
+                result = getsockopt(m_socket, SOL_SOCKET, SO_ERROR, value, &len);
                 break;
 
             default:
@@ -5450,7 +5458,8 @@
         return result == -1 ? -1 : 0;
     }
 
-    int enet_socket_connect(ENetSocket socket, const ENetAddress *address) {
+    int ENetSocket::connect(const ENetAddress *address)
+    {
         struct sockaddr_in6 sin;
         int result;
 
@@ -5461,7 +5470,7 @@
         sin.sin6_addr       = address->host;
         sin.sin6_scope_id   = address->sin6_scope_id;
 
-        result = connect(socket, (struct sockaddr *)&sin, sizeof(struct sockaddr_in6));
+        result = ::connect(m_socket, (struct sockaddr *)&sin, sizeof(struct sockaddr_in6));
         if (result == -1 && errno == EINPROGRESS) {
             return 0;
         }
@@ -5469,13 +5478,14 @@
         return result;
     }
 
-    ENetSocket enet_socket_accept(ENetSocket socket, ENetAddress *address) {
+    int ENetSocket::accept(ENetAddress *address)
+    {
         int result;
         struct sockaddr_in6 sin;
-        socklen_t sinLength = sizeof(struct sockaddr_in6);
+        socklen_t           sinLength = sizeof(struct sockaddr_in6);
 
-        result = accept(socket, address != nullptr ? (struct sockaddr *)&sin : nullptr,
-                        address != nullptr ? &sinLength : nullptr);
+        result = ::accept(m_socket, address != nullptr ? (struct sockaddr *)&sin : nullptr,
+                          address != nullptr ? &sinLength : nullptr);
 
         if (result == -1) {
             return ENET_SOCKET_NULL;
@@ -5491,17 +5501,18 @@
         return result;
     }
 
-    int enet_socket_shutdown(ENetSocket socket, ENetSocketShutdown how) {
-        return shutdown(socket, (int) how);
-    }
+    int ENetSocket::shutdown(ENetSocketShutdown how) { return ::shutdown(m_socket, (int)how); }
 
-    void enet_socket_destroy(ENetSocket socket) {
-        if (socket != -1) {
-            close(socket);
+    ENetSocket::~ENetSocket()
+    {
+        if (m_socket != -1)
+        {
+            close(m_socket);
         }
     }
 
-    int enet_socket_send(ENetSocket socket, const ENetAddress *address, const ENetBuffer *buffers, size_t bufferCount) {
+    int ENetSocket::send(const ENetAddress *address, const ENetBuffer *buffers, size_t bufferCount)
+    {
         struct msghdr msgHdr;
         struct sockaddr_in6 sin;
         int sentLength;
@@ -5524,7 +5535,7 @@
         msgHdr.msg_iov    = (struct iovec *) buffers;
         msgHdr.msg_iovlen = bufferCount;
 
-        sentLength = sendmsg(socket, &msgHdr, MSG_NOSIGNAL);
+        sentLength = sendmsg(m_socket, &msgHdr, MSG_NOSIGNAL);
 
         if (sentLength == -1) {
             if (errno == EWOULDBLOCK) {
@@ -5535,9 +5546,10 @@
         }
 
         return sentLength;
-    } /* enet_socket_send */
+    }
 
-    int enet_socket_receive(ENetSocket socket, ENetAddress *address, ENetBuffer *buffers, size_t bufferCount) {
+    int ENetSocket::receive(ENetAddress *address, ENetBuffer *buffers, size_t bufferCount)
+    {
         struct msghdr msgHdr;
         struct sockaddr_in6 sin;
         int recvLength;
@@ -5553,7 +5565,7 @@
         msgHdr.msg_iov    = (struct iovec *) buffers;
         msgHdr.msg_iovlen = bufferCount;
 
-        recvLength = recvmsg(socket, &msgHdr, MSG_NOSIGNAL);
+        recvLength = recvmsg(m_socket, &msgHdr, MSG_NOSIGNAL);
 
         if (recvLength == -1) {
             if (errno == EWOULDBLOCK) {
@@ -5575,37 +5587,38 @@
         }
 
         return recvLength;
-    } /* enet_socket_receive */
-
-    int enet_socketset_select(ENetSocket maxSocket, ENetSocketSet *readSet, ENetSocketSet *writeSet, enet_uint32 timeout) {
-        struct timeval timeVal;
-
-        timeVal.tv_sec  = timeout / 1000;
-        timeVal.tv_usec = (timeout % 1000) * 1000;
-
-        return select(maxSocket + 1, readSet, writeSet, nullptr, &timeVal);
     }
 
-    int enet_socket_wait(ENetSocket socket, enet_uint32 *condition, enet_uint64 timeout) {
-        struct pollfd pollSocket;
-        int pollCount;
+    int ENetSocket::select(ENetSocketSet *readSet, ENetSocketSet *writeSet, enet_uint32 timeout)
+    {
+        timeval timeVal = {timeout / 1000, (timeout % 1000) * 1000};
 
-        pollSocket.fd     = socket;
-        pollSocket.events = 0;
+        return ::select(m_socket + 1, readSet, writeSet, nullptr, &timeVal);
+    }
 
-        if (*condition & ENET_SOCKET_WAIT_SEND) {
+    int ENetSocket::wait(enet_uint32 &condition, enet_uint64 timeout)
+    {
+        pollfd pollSocket = {
+            m_socket,
+            0,
+        };
+
+        if (condition & ENET_SOCKET_WAIT_SEND)
+        {
             pollSocket.events |= POLLOUT;
         }
 
-        if (*condition & ENET_SOCKET_WAIT_RECEIVE) {
+        if (condition & ENET_SOCKET_WAIT_RECEIVE)
+        {
             pollSocket.events |= POLLIN;
         }
 
-        pollCount = poll(&pollSocket, 1, timeout);
+        int pollCount = ::poll(&pollSocket, 1, timeout);
 
         if (pollCount < 0) {
-            if (errno == EINTR && *condition & ENET_SOCKET_WAIT_INTERRUPT) {
-                *condition = ENET_SOCKET_WAIT_INTERRUPT;
+            if (errno == EINTR && condition & ENET_SOCKET_WAIT_INTERRUPT)
+            {
+                condition = ENET_SOCKET_WAIT_INTERRUPT;
 
                 return 0;
             }
@@ -5613,18 +5626,18 @@
             return -1;
         }
 
-        *condition = ENET_SOCKET_WAIT_NONE;
+        condition = ENET_SOCKET_WAIT_NONE;
 
         if (pollCount == 0) {
             return 0;
         }
 
         if (pollSocket.revents & POLLOUT) {
-            *condition |= ENET_SOCKET_WAIT_SEND;
+            condition |= ENET_SOCKET_WAIT_SEND;
         }
 
         if (pollSocket.revents & POLLIN) {
-            *condition |= ENET_SOCKET_WAIT_RECEIVE;
+            condition |= ENET_SOCKET_WAIT_RECEIVE;
         }
 
         return 0;
