@@ -846,7 +846,7 @@
         ~ENetHost();
 
         ENetPeer *  connect(const ENetAddress *, size_t, enet_uint32);
-        int         check_events(struct _ENetEvent *);
+        bool        check_events(ENetEvent &);
         int         service(ENetEvent *, enet_uint32);
         int         send_raw(const ENetAddress *, enet_uint8 *, size_t);
         int         send_raw_ex(const ENetAddress *address, enet_uint8 *data, size_t skipBytes,
@@ -1536,12 +1536,13 @@
         enet_protocol_change_state(host, peer, state);
 
         if (!peer->needsDispatch) {
-            host->dispatchQueue.insert(host->dispatchQueue.end(), peer);
+            host->dispatchQueue.push_back(peer);
             peer->needsDispatch = 1;
         }
     }
 
-    static int enet_protocol_dispatch_incoming_commands(ENetHost *host, ENetEvent *event) {
+    static bool enet_protocol_dispatch_incoming_commands(ENetHost *host, ENetEvent &event)
+    {
         while (!host->dispatchQueue.empty())
         {
             ENetPeer *peer = host->dispatchQueue.front();
@@ -1554,18 +1555,18 @@
             case ENetPeerState::CONNECTION_SUCCEEDED:
                 enet_protocol_change_state(host, peer, ENetPeerState::CONNECTED);
 
-                event->type = ENET_EVENT_TYPE_CONNECT;
-                event->peer = peer;
-                event->data = peer->eventData;
+                event.type = ENET_EVENT_TYPE_CONNECT;
+                event.peer = peer;
+                event.data = peer->eventData;
 
                 return 1;
 
             case ENetPeerState::ZOMBIE:
                 host->recalculateBandwidthLimits = 1;
 
-                event->type = ENET_EVENT_TYPE_DISCONNECT;
-                event->peer = peer;
-                event->data = peer->eventData;
+                event.type = ENET_EVENT_TYPE_DISCONNECT;
+                event.peer = peer;
+                event.data = peer->eventData;
 
                 peer->reset();
 
@@ -1577,19 +1578,19 @@
                     continue;
                 }
 
-                event->packet = peer->receive(&event->channelID);
-                if (event->packet == nullptr)
+                event.packet = peer->receive(&event.channelID);
+                if (event.packet == nullptr)
                 {
                     continue;
                 }
 
-                event->type = ENET_EVENT_TYPE_RECEIVE;
-                event->peer = peer;
+                event.type = ENET_EVENT_TYPE_RECEIVE;
+                event.peer = peer;
 
                 if (!enet_list_empty(&peer->dispatchedCommands))
                 {
                     peer->needsDispatch = 1;
-                    host->dispatchQueue.insert(host->dispatchQueue.end(), peer);
+                    host->dispatchQueue.push_back(peer);
                 }
 
                 return 1;
@@ -2857,7 +2858,9 @@
         ENetAcknowledgement *acknowledgement;
         enet_uint16          reliableSequenceNumber;
 
-        for (auto acknowledgement : peer->acknowledgements)
+        for (auto acknowledgement = std::begin(peer->acknowledgements);
+             acknowledgement != std::end(peer->acknowledgements);
+             acknowledgement = peer->acknowledgements.erase(acknowledgement))
         {
             if (command >= &host->commands[sizeof(host->commands) / sizeof(ENetProtocol)] ||
                 buffer >= &host->buffers[sizeof(host->buffers) / sizeof(ENetBuffer)] ||
@@ -2871,15 +2874,15 @@
             host->packetSize += buffer->dataLength;
 
             reliableSequenceNumber =
-                ENET_HOST_TO_NET_16(acknowledgement.command.header.reliableSequenceNumber);
+                ENET_HOST_TO_NET_16(acknowledgement->command.header.reliableSequenceNumber);
 
             command->header.command   = ENET_PROTOCOL_COMMAND_ACKNOWLEDGE;
-            command->header.channelID              = acknowledgement.command.header.channelID;
+            command->header.channelID              = acknowledgement->command.header.channelID;
             command->header.reliableSequenceNumber = reliableSequenceNumber;
             command->acknowledge.receivedReliableSequenceNumber = reliableSequenceNumber;
-            command->acknowledge.receivedSentTime = ENET_HOST_TO_NET_16(acknowledgement.sentTime);
+            command->acknowledge.receivedSentTime = ENET_HOST_TO_NET_16(acknowledgement->sentTime);
 
-            if ((acknowledgement.command.header.command & ENET_PROTOCOL_COMMAND_MASK) ==
+            if ((acknowledgement->command.header.command & ENET_PROTOCOL_COMMAND_MASK) ==
                 ENET_PROTOCOL_COMMAND_DISCONNECT)
             {
                 enet_protocol_dispatch_state(host, peer, ENetPeerState::ZOMBIE);
@@ -3357,16 +3360,11 @@
      *  @retval < 0 on failure
      *  @ingroup host
      */
-    int ENetHost::check_events(ENetEvent *event)
+    bool ENetHost::check_events(ENetEvent &event)
     {
-        if (event == nullptr)
-        {
-            return -1;
-        }
-
-        event->type   = ENET_EVENT_TYPE_NONE;
-        event->peer   = nullptr;
-        event->packet = nullptr;
+        event.type   = ENET_EVENT_TYPE_NONE;
+        event.peer   = nullptr;
+        event.packet = nullptr;
 
         return enet_protocol_dispatch_incoming_commands(this, event);
     }
@@ -3388,27 +3386,9 @@
     {
         enet_uint32 waitCondition;
 
-        if (event != nullptr)
+        if (event != nullptr && this->check_events(*event))
         {
-            event->type   = ENET_EVENT_TYPE_NONE;
-            event->peer   = nullptr;
-            event->packet = nullptr;
-
-            switch (enet_protocol_dispatch_incoming_commands(this, event))
-            {
-            case 1:
-                return 1;
-
-            case -1:
-#ifdef ENET_DEBUG
-                perror("Error dispatching incoming packets");
-#endif
-
-                return -1;
-
-            default:
-                break;
-            }
+            return 1;
         }
 
         this->serviceTime = enet_time_get();
@@ -3469,23 +3449,9 @@
                 break;
             }
 
-            if (event != nullptr)
+            if (event != nullptr && enet_protocol_dispatch_incoming_commands(this, *event))
             {
-                switch (enet_protocol_dispatch_incoming_commands(this, event))
-                {
-                case 1:
-                    return 1;
-
-                case -1:
-#ifdef ENET_DEBUG
-                    perror("Error dispatching incoming packets");
-#endif
-
-                    return -1;
-
-                default:
-                    break;
-                }
+                return 1;
             }
 
             if (ENET_TIME_GREATER_EQUAL(this->serviceTime, timeout))
@@ -4285,7 +4251,7 @@
 
                     if (!this->needsDispatch)
                     {
-                        host->dispatchQueue.insert(this->host->dispatchQueue.end(), this);
+                        host->dispatchQueue.push_back(this);
 
                         this->needsDispatch = 1;
                     }
@@ -4314,7 +4280,7 @@
 
                     if (!this->needsDispatch)
                     {
-                        host->dispatchQueue.insert(this->host->dispatchQueue.end(), this);
+                        host->dispatchQueue.push_back(this);
 
                         this->needsDispatch = 1;
                     }
@@ -4330,7 +4296,7 @@
 
             if (!this->needsDispatch)
             {
-                host->dispatchQueue.insert(this->host->dispatchQueue.end(), this);
+                host->dispatchQueue.push_back(this);
                 this->needsDispatch = 1;
             }
 
@@ -4372,7 +4338,7 @@
 
         if (!this->needsDispatch)
         {
-            host->dispatchQueue.insert(this->host->dispatchQueue.end(), this);
+            host->dispatchQueue.push_back(this);
             this->needsDispatch = 1;
         }
 
