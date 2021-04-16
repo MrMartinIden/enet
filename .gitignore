@@ -1,3 +1,4 @@
 build/
+*.user
 node_modules/
 .DS_store

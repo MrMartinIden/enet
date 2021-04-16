@@ -35,9 +35,11 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <iostream>
 #include <list>
+#include <vector>
 
 #include <stdlib.h>
 #include <stdbool.h>
@@ -2855,7 +2857,7 @@
     static void enet_protocol_send_acknowledgements(ENetHost *host, ENetPeer *peer) {
         ENetProtocol *command = &host->commands[host->commandCount];
         ENetBuffer *buffer    = &host->buffers[host->bufferCount];
-        ENetAcknowledgement *acknowledgement;
+        [[maybe_unused]] ENetAcknowledgement* acknowledgement;
         enet_uint16          reliableSequenceNumber;
 
         for (auto acknowledgement = std::begin(peer->acknowledgements);
@@ -3174,9 +3176,9 @@
         ENetProtocolHeader *header = (ENetProtocolHeader *) headerData;
         int sentLength;
         size_t shouldCompress = 0;
-        uint8_t             continueSending = 1;
+        uint8_t continueSending = 1;
 
-        while (continueSending)
+        while (continueSending) {
             for (continueSending = 0; auto &currentPeer : host->peers)
             {
                 if (currentPeer.state == ENetPeerState::DISCONNECTED ||
@@ -3335,6 +3337,7 @@
                 currentPeer.totalDataSent += sentLength;
                 host->totalSentPackets++;
             }
+        }
 
         return 0;
     } /* enet_protocol_send_outgoing_commands */
@@ -4125,7 +4128,7 @@
         {
             ENetChannel *channel = &this->channels[command->header.channelID];
             enet_uint16 reliableWindow = command->header.reliableSequenceNumber / ENET_PEER_RELIABLE_WINDOW_SIZE;
-            enet_uint16 currentWindow  = channel->incomingReliableSequenceNumber / ENET_PEER_RELIABLE_WINDOW_SIZE;
+            [[maybe_unused]] enet_uint16 currentWindow = channel->incomingReliableSequenceNumber / ENET_PEER_RELIABLE_WINDOW_SIZE;
 
             if (command->header.reliableSequenceNumber < channel->incomingReliableSequenceNumber) {
                 reliableWindow += ENET_PEER_RELIABLE_WINDOWS;
