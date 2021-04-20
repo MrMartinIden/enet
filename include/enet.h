@@ -522,7 +522,7 @@
      * @sa ENetPacketFlag
      */
     typedef struct _ENetPacket {
-        size_t                 referenceCount; /**< internal use only */
+        size_t referenceCount; /**< internal use only */
         enet_uint32            flags;          /**< bitwise-or of ENetPacketFlag constants */
         enet_uint8 *           data;           /**< allocated data for packet */
         size_t                 dataLength;     /**< length of data */
@@ -791,11 +791,11 @@
      */
     struct ENetEvent
     {
-        ENetEventType type;    /**< type of the event */
-        ENetPeer *    peer;    /**< peer that generated a connect, disconnect or receive event */
-        enet_uint8  channelID; /**< channel on the peer that generated the event, if appropriate */
-        enet_uint32 data;      /**< data associated with the event, if appropriate */
-        ENetPacket *packet;    /**< packet associated with the event, if appropriate */
+        ENetPacket* packet; /**< packet associated with the event, if appropriate */
+        ENetPeer* peer; /**< peer that generated a connect, disconnect or receive event */
+        enet_uint32 data; /**< data associated with the event, if appropriate */
+        enet_uint8 channelID; /**< channel on the peer that generated the event, if appropriate */
+        ENetEventType type; /**< type of the event */
     };
 
     struct ENetSocket
@@ -1023,8 +1023,6 @@
     ENET_API enet_uint32  enet_crc32(const ENetBuffer *, size_t);
 
     extern size_t enet_protocol_command_size (enet_uint8);
-
-#define ENET_IMPLEMENTATION
 
 #if defined(ENET_IMPLEMENTATION) && !defined(ENET_IMPLEMENTATION_DONE)
 #define ENET_IMPLEMENTATION_DONE 1
