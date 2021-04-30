@@ -7,7 +7,8 @@ else()
         add_definitions(-Wall)
 endif()
 
-set(SRC test/library.cpp)
+set(SRC test/library.cpp
+    src/peer.cpp)
 
 option(ENET_STATIC "" ON)
 if (ENET_STATIC)
